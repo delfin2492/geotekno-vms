@@ -1,0 +1,20 @@
+{
+  "name": "marine-navigation-backend",
+  "version": "1.0.0",
+  "description": "NMEA 2000 TCP Ingestion, Decoder, PostGIS Logger and WebSocket Streamer",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.11.5",
+    "ws": "^8.17.0"
+  }
+}

@@ -1,0 +1,73 @@
+services:
+  # 1. Database PostgreSQL dengan ekstensi PostGIS untuk data spasial navigasi
+  nav-postgres:
+    image: postgis/postgis:16-3.4
+    container_name: nav_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: nav_user
+      POSTGRES_PASSWORD: nav_password123
+      POSTGRES_DB: navigation_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/src/db/migrations.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nav_user -d navigation_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nav-net
+
+  # 2. Backend Service Node.js (TCP Listener 20005, Decoder N2K, WebSocket, REST API)
+  nav-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nav_backend
+    restart: always
+    depends_on:
+      nav-postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      TCP_HOST: "0.0.0.0"
+      TCP_PORT: 20005
+      HTTP_PORT: 8080
+      DB_HOST: nav-postgres
+      DB_PORT: 5432
+      DB_USER: nav_user
+      DB_PASSWORD: nav_password123
+      DB_NAME: navigation_db
+      LOG_INTERVAL_SEC: 1.0
+    ports:
+      - "20005:20005"   # Port TCP NMEA 2000 aktif untuk USR-CANET200
+      - "20006:20006"   # Port TCP NMEA 0183 RS485 Serial Gateway
+      - "2006:2006"     # Port TCP NMEA 0183 AquaMap RS485
+      - "8080:8080"     # Port HTTP API & WebSocket
+    networks:
+      - nav-net
+
+  # 3. Frontend Web Service (NautiCore Vessel Fleet Operations Console)
+  nav-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: nav_frontend
+    restart: always
+    ports:
+      - "3000:80"       # Buka di browser: http://localhost:3000
+    depends_on:
+      - nav-backend
+    networks:
+      - nav-net
+
+volumes:
+  pgdata:
+    driver: local
+
+networks:
+  nav-net:
+    driver: bridge
