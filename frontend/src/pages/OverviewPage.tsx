@@ -80,7 +80,7 @@ export function OverviewPage() {
         <div>
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#db4040]">
             <Ship className="h-4 w-4" />
-            <span>Box Navigasi Platform • Fleet Operations Command Center</span>
+            <span>Vessel Monitoring Sytem</span>
           </div>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
             Operations Overview
@@ -302,8 +302,8 @@ export function OverviewPage() {
               selectedVessel={activeVessel}
               aisTargets={aisTargets}
               isOwnShipSelected={true}
-              onSelectTarget={() => {}}
-              onSelectOwnShip={() => {}}
+              onSelectTarget={() => { }}
+              onSelectOwnShip={() => { }}
               ports={REGIONAL_PORTS}
               track={activeTrack}
               showTrack={true}
@@ -358,12 +358,12 @@ export function OverviewPage() {
                   agent.decoderTemplate === "HYBRID"
                     ? "Hybrid CAN (N2K) + RS-485"
                     : agent.decoderTemplate === "NMEA2000"
-                    ? "NMEA 2000 (CAN bus)"
-                    : agent.decoderTemplate === "NMEA0183"
-                    ? "NMEA 0183 (RS-485)"
-                    : agent.decoderTemplate === "MODBUS"
-                    ? "Modbus TCP Engine"
-                    : agent.decoders?.join(" + ") || "Standard Decoder"
+                      ? "NMEA 2000 (CAN bus)"
+                      : agent.decoderTemplate === "NMEA0183"
+                        ? "NMEA 0183 (RS-485)"
+                        : agent.decoderTemplate === "MODBUS"
+                          ? "Modbus TCP Engine"
+                          : agent.decoders?.join(" + ") || "Standard Decoder"
 
                 return (
                   <div
