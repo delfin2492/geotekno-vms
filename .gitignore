@@ -36,3 +36,6 @@ Thumbs.db
 # Temporary files
 scratch/
 .system_generated/
+backup/
+*.sql
+!backend/src/db/migrations.sql
