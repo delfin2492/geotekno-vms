@@ -80,10 +80,10 @@ export function OverviewPage() {
         <div>
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#db4040]">
             <Ship className="h-4 w-4" />
-            <span>Vessel Monitoring Sytem</span>
+            <span>GeoTekno VMS • Vessel Monitoring System</span>
           </div>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-            Operations Overview
+            Fleet Operations Overview
           </h1>
           <p className="mt-1 text-xs sm:text-sm text-slate-500 max-w-2xl">
             Real-time digital twin monitoring, maritime traffic situational awareness, and hardware gateway telemetry diagnostics.

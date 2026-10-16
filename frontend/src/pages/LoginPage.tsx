@@ -44,7 +44,7 @@ export function LoginPage() {
 
       {/* Main Centered Login Card */}
       <div className="relative z-10 w-full max-w-[420px] rounded-2xl border border-slate-800 bg-slate-900/90 p-8 shadow-2xl backdrop-blur-xl sm:p-10">
-        {/* Brand Logo */}
+        {/* Brand Logo & Platform Title */}
         <div className="flex flex-col items-center text-center">
           <div className="inline-block transition hover:opacity-90">
             <img
@@ -53,6 +53,12 @@ export function LoginPage() {
               className="h-9 w-auto max-w-[180px] object-contain"
             />
           </div>
+          <h1 className="mt-3 text-lg font-bold tracking-tight text-white flex items-center justify-center gap-1.5">
+            GeoTekno <span className="text-[#db4040]">VMS</span>
+          </h1>
+          <p className="mt-1 text-[11px] font-medium text-slate-400">
+            Vessel Monitoring & Fleet Telemetry System
+          </p>
         </div>
 
         {/* Error Notification */}

@@ -41,13 +41,16 @@ function Logo() {
     <Link
       to="/"
       className="flex shrink-0 items-center gap-2.5 transition hover:opacity-90"
-      aria-label="GEOTEKNO Overview"
+      aria-label="GeoTekno VMS Overview"
     >
       <img
         src="/logo.png"
         alt="GEOTEKNO"
-        className="h-8 w-auto max-w-[150px] sm:max-w-[190px] object-contain"
+        className="h-8 w-auto max-w-[140px] sm:max-w-[170px] object-contain"
       />
+      <span className="hidden sm:inline-flex items-center rounded-md bg-[#db4040]/10 px-2 py-0.5 text-[11px] font-black text-[#db4040] uppercase tracking-wider border border-[#db4040]/20">
+        VMS
+      </span>
     </Link>
   )
 }
