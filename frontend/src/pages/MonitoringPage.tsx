@@ -2744,17 +2744,25 @@ const PALETTE_WIDGETS: PaletteItem[] = [
 export function MonitoringPage() {
   const { vessels } = useFleet()
 
-  // MODE: "view" (full canvas, hide sidebar) vs "modify" (show sidebar palette & settings, allow drag/resize)
+  // MODE: "view" (full canvas, hide sidebar) vs "modify" (show inline sidebar palette & settings, allow drag/resize)
   const [dashboardMode, setDashboardMode] = useState<"view" | "modify">("view")
-  const [sidebarMinimized, setSidebarMinimized] = useState(false)
 
   // Align grid width smoothly during view/modify mode transitions without frantic looping
   useEffect(() => {
     const timer = setTimeout(() => {
       window.dispatchEvent(new Event("resize"))
-    }, 60)
+    }, 320)
     return () => clearTimeout(timer)
-  }, [dashboardMode, sidebarMinimized])
+  }, [dashboardMode])
+
+  function handleSwitchToViewMode() {
+    setSelectedWidgetId(null)
+    setDashboardMode("view")
+  }
+
+  function handleSwitchToModifyMode() {
+    setDashboardMode("modify")
+  }
 
   // Load sections from localStorage
   const [sections, setSections] = useState<DashboardSection[]>(() => {
@@ -3622,7 +3630,7 @@ export function MonitoringPage() {
           {dashboardMode === "view" ? (
             <button
               type="button"
-              onClick={() => setDashboardMode("modify")}
+              onClick={handleSwitchToModifyMode}
               className="flex items-center gap-1.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white px-3.5 py-2 text-xs font-bold transition shadow-sm cursor-pointer"
             >
               <Pencil className="h-3.5 w-3.5" />
@@ -3641,10 +3649,10 @@ export function MonitoringPage() {
         </div>
       </div>
 
-      {/* 2. MAIN WORKSPACE: CANVAS FULL DISPLAY (100% STABLE WIDTH) */}
-      <div className="w-full relative">
-        {/* Canvas Area: 100% stable width, never squeezed by sidebar */}
-        <div className="w-full min-w-0">
+      {/* 2. MAIN WORKSPACE: CANVAS WITH INLINE SIDEBAR */}
+      <div className="flex flex-col lg:flex-row items-start w-full relative">
+        {/* Canvas Area: flex-1 dynamically expands and shrinks smoothly */}
+        <div className="flex-1 w-full min-w-0 transition-all duration-300">
           <div
             className={`rounded-2xl transition duration-200 min-h-[750px] relative overflow-hidden ${
               dashboardMode === "modify"
@@ -3716,7 +3724,6 @@ export function MonitoringPage() {
                         onClick={() => {
                           if (dashboardMode === "modify") {
                             setSelectedWidgetId(widget.id)
-                            setSidebarMinimized(false)
                           }
                         }}
                         className={`overflow-hidden rounded-2xl border bg-white shadow-sm transition duration-200 group/card ${
@@ -3780,65 +3787,47 @@ export function MonitoringPage() {
           </div>
         </div>
 
-        {/* 3. WIDGETS SIDEBAR: FLOATING OVERLAY DRAWER (ZERO CANVAS SQUEEZE) */}
-        {dashboardMode === "modify" && (
-          <div
-            className={`fixed top-24 right-6 z-40 transition-all duration-300 ease-in-out ${
-              sidebarMinimized ? "w-auto" : "w-80 xl:w-84"
-            }`}
-          >
-            {sidebarMinimized ? (
-              <button
-                type="button"
-                onClick={() => setSidebarMinimized(false)}
-                className="flex items-center gap-2 rounded-2xl border border-slate-300/80 bg-white/95 backdrop-blur-md px-4 py-3 shadow-2xl hover:border-[#db4040] hover:bg-red-50/50 transition cursor-pointer font-bold text-xs text-slate-800"
-                title="Buka Panel Widget & Pengaturan"
-              >
-                <LayoutGrid className="h-4 w-4 text-[#db4040]" />
-                <span>Open Widgets & Settings</span>
-              </button>
-            ) : (
-              <div className="w-80 xl:w-84 rounded-2xl border border-slate-200/90 bg-white/95 backdrop-blur-md shadow-2xl overflow-hidden flex flex-col max-h-[calc(100vh-7.5rem)]">
-                {selectedWidget ? (
-                  /* ========================================================= */
-                  /* CONTEXTUAL WIDGET SETTINGS PANEL                          */
-                  /* ========================================================= */
-                  <div className="flex flex-col h-full overflow-hidden">
-                    {/* Header with primary logo color */}
-                    <div className="bg-[#db4040] text-white px-3.5 py-3 flex items-center justify-between shadow-xs shrink-0">
-                      <div className="font-bold text-xs truncate max-w-[170px]">
-                        {selectedWidget.title || "Widget Settings"}
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setWidgetToDelete(selectedWidget)}
-                          className="text-white/80 hover:text-white p-1 hover:bg-white/10 rounded transition cursor-pointer"
-                          title="Delete Widget"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSidebarMinimized(true)}
-                          className="text-white/80 hover:text-white p-1 hover:bg-white/10 rounded transition cursor-pointer"
-                          title="Minimize Sidebar"
-                        >
-                          <ChevronRight className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedWidgetId(null)}
-                          className="text-white/80 hover:text-white p-1 hover:bg-white/10 rounded transition cursor-pointer"
-                          title="Close Settings Panel"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
+        {/* 3. WIDGETS SIDEBAR: INLINE SIDEBAR (SLIDES IN/OUT SMOOTHLY) */}
+        <div
+          className={`shrink-0 transition-all duration-300 ease-in-out sticky top-4 self-start overflow-hidden ${
+            dashboardMode === "modify"
+              ? "w-full lg:w-80 xl:w-84 lg:ml-3 opacity-100 translate-x-0"
+              : "w-0 max-w-0 lg:ml-0 opacity-0 translate-x-8 pointer-events-none"
+          }`}
+        >
+          <div className="w-80 xl:w-84 rounded-2xl border border-slate-200/90 bg-white shadow-sm overflow-hidden flex flex-col">
+            {selectedWidget ? (
+              /* ========================================================= */
+              /* CONTEXTUAL WIDGET SETTINGS PANEL                          */
+              /* ========================================================= */
+              <div className="flex flex-col h-full">
+                {/* Header with primary logo color */}
+                <div className="bg-[#db4040] text-white px-3.5 py-3 flex items-center justify-between shadow-xs">
+                  <div className="font-bold text-xs truncate max-w-[200px]">
+                    {selectedWidget.title || "Widget Settings"}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setWidgetToDelete(selectedWidget)}
+                      className="text-white/80 hover:text-white p-1 hover:bg-white/10 rounded transition cursor-pointer"
+                      title="Delete Widget"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedWidgetId(null)}
+                      className="text-white/80 hover:text-white p-1 hover:bg-white/10 rounded transition cursor-pointer"
+                      title="Close Settings Panel"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
 
-                    {/* Form Body Setting Widget */}
-                    <div className="p-4 space-y-4 flex-1 overflow-y-auto text-xs">
+                {/* Form Body Setting Widget */}
+                <div className="p-4 space-y-4 max-h-[740px] overflow-y-auto text-xs">
                   {/* 1. Name • Input */}
                   <div>
                     <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
@@ -4565,12 +4554,12 @@ export function MonitoringPage() {
               /* DEFAULT PANEL: TAB WIDGETS (KATALOG 2 KOLOM) & SETTINGS  */
               /* ========================================================= */
               <>
-                {/* Header Tabs: WIDGETS | SETTINGS + Minimize button */}
-                <div className="flex items-center border-b border-slate-200 bg-slate-50 shrink-0">
+                {/* Header Tabs: WIDGETS | SETTINGS */}
+                <div className="grid grid-cols-2 text-center text-xs font-bold border-b border-slate-200">
                   <button
                     type="button"
                     onClick={() => setSidebarTab("widgets")}
-                    className={`flex-1 py-3 transition cursor-pointer flex items-center justify-center gap-1.5 text-xs font-bold ${
+                    className={`py-3 transition cursor-pointer flex items-center justify-center gap-1.5 ${
                       sidebarTab === "widgets"
                         ? "bg-[#db4040] text-white font-extrabold shadow-inner"
                         : "bg-slate-100/80 text-slate-600 hover:bg-slate-200/70"
@@ -4582,7 +4571,7 @@ export function MonitoringPage() {
                   <button
                     type="button"
                     onClick={() => setSidebarTab("settings")}
-                    className={`flex-1 py-3 transition cursor-pointer flex items-center justify-center gap-1.5 text-xs font-bold ${
+                    className={`py-3 transition cursor-pointer flex items-center justify-center gap-1.5 ${
                       sidebarTab === "settings"
                         ? "bg-[#db4040] text-white font-extrabold shadow-inner"
                         : "bg-slate-100/80 text-slate-600 hover:bg-slate-200/70"
@@ -4590,14 +4579,6 @@ export function MonitoringPage() {
                   >
                     <Settings className="h-3.5 w-3.5" />
                     <span>SETTINGS</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSidebarMinimized(true)}
-                    className="p-3 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition cursor-pointer shrink-0"
-                    title="Minimize Sidebar"
-                  >
-                    <ChevronRight className="h-4 w-4" />
                   </button>
                 </div>
 
@@ -4699,10 +4680,8 @@ export function MonitoringPage() {
                 )}
               </>
             )}
-              </div>
-            )}
           </div>
-        )}
+        </div>
       </div>
 
       {/* ========================================================================= */}
