@@ -13,6 +13,7 @@ import {
   BarChart2,
   Check,
   ChevronDown,
+  ChevronRight,
   CircleGauge,
   CloudSun,
   Compass,
@@ -2745,23 +2746,15 @@ export function MonitoringPage() {
 
   // MODE: "view" (full canvas, hide sidebar) vs "modify" (show sidebar palette & settings, allow drag/resize)
   const [dashboardMode, setDashboardMode] = useState<"view" | "modify">("view")
+  const [sidebarMinimized, setSidebarMinimized] = useState(false)
 
-  // Smoothly trigger grid resize during view/modify mode transitions
+  // Align grid width smoothly during view/modify mode transitions without frantic looping
   useEffect(() => {
-    let frameId: number
-    const start = performance.now()
-    const duration = 350
-    const step = (now: number) => {
+    const timer = setTimeout(() => {
       window.dispatchEvent(new Event("resize"))
-      if (now - start < duration) {
-        frameId = requestAnimationFrame(step)
-      } else {
-        window.dispatchEvent(new Event("resize"))
-      }
-    }
-    frameId = requestAnimationFrame(step)
-    return () => cancelAnimationFrame(frameId)
-  }, [dashboardMode])
+    }, 60)
+    return () => clearTimeout(timer)
+  }, [dashboardMode, sidebarMinimized])
 
   // Load sections from localStorage
   const [sections, setSections] = useState<DashboardSection[]>(() => {
@@ -3245,11 +3238,13 @@ export function MonitoringPage() {
   // Handle grid layout update
   function handleLayoutChange(_layout: Layout[], allLayouts: ResponsiveLayouts) {
     if (dashboardMode !== "modify") return
-    const current12Col = allLayouts.lg || allLayouts.md || _layout
+    const current12Col = allLayouts.lg || allLayouts.md || allLayouts.sm || _layout
     const syncedLayouts: ResponsiveLayouts = {
       ...allLayouts,
       lg: current12Col,
       md: current12Col,
+      sm: current12Col,
+      xs: (allLayouts.xs || current12Col).map((item, i) => ({ ...item, x: 0, y: i * 4, w: 1 })),
     }
     setSections((prev) =>
       prev.map((sec) =>
@@ -3646,12 +3641,12 @@ export function MonitoringPage() {
         </div>
       </div>
 
-      {/* 2. MAIN WORKSPACE: CANVAS FULL DISPLAY (NO SUBHEADER CARDS) */}
-      <div className="flex flex-col lg:flex-row items-start w-full relative">
-        {/* Canvas Area: Snug spacing, full widget area */}
-        <div className="w-full min-w-0 flex-1 transition-[max-width,padding] duration-300 ease-in-out">
+      {/* 2. MAIN WORKSPACE: CANVAS FULL DISPLAY (100% STABLE WIDTH) */}
+      <div className="w-full relative">
+        {/* Canvas Area: 100% stable width, never squeezed by sidebar */}
+        <div className="w-full min-w-0">
           <div
-            className={`rounded-2xl transition duration-300 min-h-[750px] relative overflow-hidden ${
+            className={`rounded-2xl transition duration-200 min-h-[750px] relative overflow-hidden ${
               dashboardMode === "modify"
                 ? "border border-slate-200/90 p-2 sm:p-2.5 shadow-xs"
                 : "p-0.5 border-transparent"
@@ -3688,12 +3683,13 @@ export function MonitoringPage() {
                 ...rawLayouts,
                 lg: primaryLayout,
                 md: primaryLayout,
+                sm: primaryLayout,
               }
               return (
                 <ResponsiveGrid
                   className="layout"
                   layouts={effectiveLayouts}
-                  breakpoints={{ lg: 1200, md: 768, sm: 480, xs: 0 }}
+                  breakpoints={{ lg: 768, md: 576, sm: 480, xs: 0 }}
                   cols={{ lg: 12, md: 12, sm: 12, xs: 1 }}
                   rowHeight={44}
                   margin={[12, 12]}
@@ -3720,6 +3716,7 @@ export function MonitoringPage() {
                         onClick={() => {
                           if (dashboardMode === "modify") {
                             setSelectedWidgetId(widget.id)
+                            setSidebarMinimized(false)
                           }
                         }}
                         className={`overflow-hidden rounded-2xl border bg-white shadow-sm transition duration-200 group/card ${
@@ -3783,47 +3780,65 @@ export function MonitoringPage() {
           </div>
         </div>
 
-        {/* 3. WIDGETS SIDEBAR: SLIDES IN/OUT SMOOTHLY */}
-        <div
-          className={`shrink-0 transition-all duration-300 ease-in-out sticky top-4 self-start overflow-hidden ${
-            dashboardMode === "modify"
-              ? "w-full lg:w-80 xl:w-84 lg:ml-3 opacity-100 translate-x-0"
-              : "w-0 max-w-0 lg:ml-0 opacity-0 translate-x-8 pointer-events-none"
-          }`}
-        >
-          <div className="w-80 xl:w-84 rounded-2xl border border-slate-200/90 bg-white shadow-sm overflow-hidden">
-            {selectedWidget ? (
-              /* ========================================================= */
-              /* CONTEXTUAL WIDGET SETTINGS PANEL                          */
-              /* ========================================================= */
-              <div className="flex flex-col h-full">
-                {/* Header with primary logo color */}
-                <div className="bg-[#db4040] text-white px-3.5 py-3 flex items-center justify-between shadow-xs">
-                  <div className="font-bold text-xs truncate max-w-[200px]">
-                    {selectedWidget.title || "Widget Settings"}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setWidgetToDelete(selectedWidget)}
-                      className="text-white/80 hover:text-white p-1 hover:bg-white/10 rounded transition cursor-pointer"
-                      title="Delete Widget"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedWidgetId(null)}
-                      className="text-white/80 hover:text-white p-1 hover:bg-white/10 rounded transition cursor-pointer"
-                      title="Close Settings Panel"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
+        {/* 3. WIDGETS SIDEBAR: FLOATING OVERLAY DRAWER (ZERO CANVAS SQUEEZE) */}
+        {dashboardMode === "modify" && (
+          <div
+            className={`fixed top-24 right-6 z-40 transition-all duration-300 ease-in-out ${
+              sidebarMinimized ? "w-auto" : "w-80 xl:w-84"
+            }`}
+          >
+            {sidebarMinimized ? (
+              <button
+                type="button"
+                onClick={() => setSidebarMinimized(false)}
+                className="flex items-center gap-2 rounded-2xl border border-slate-300/80 bg-white/95 backdrop-blur-md px-4 py-3 shadow-2xl hover:border-[#db4040] hover:bg-red-50/50 transition cursor-pointer font-bold text-xs text-slate-800"
+                title="Buka Panel Widget & Pengaturan"
+              >
+                <LayoutGrid className="h-4 w-4 text-[#db4040]" />
+                <span>Open Widgets & Settings</span>
+              </button>
+            ) : (
+              <div className="w-80 xl:w-84 rounded-2xl border border-slate-200/90 bg-white/95 backdrop-blur-md shadow-2xl overflow-hidden flex flex-col max-h-[calc(100vh-7.5rem)]">
+                {selectedWidget ? (
+                  /* ========================================================= */
+                  /* CONTEXTUAL WIDGET SETTINGS PANEL                          */
+                  /* ========================================================= */
+                  <div className="flex flex-col h-full overflow-hidden">
+                    {/* Header with primary logo color */}
+                    <div className="bg-[#db4040] text-white px-3.5 py-3 flex items-center justify-between shadow-xs shrink-0">
+                      <div className="font-bold text-xs truncate max-w-[170px]">
+                        {selectedWidget.title || "Widget Settings"}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setWidgetToDelete(selectedWidget)}
+                          className="text-white/80 hover:text-white p-1 hover:bg-white/10 rounded transition cursor-pointer"
+                          title="Delete Widget"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSidebarMinimized(true)}
+                          className="text-white/80 hover:text-white p-1 hover:bg-white/10 rounded transition cursor-pointer"
+                          title="Minimize Sidebar"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedWidgetId(null)}
+                          className="text-white/80 hover:text-white p-1 hover:bg-white/10 rounded transition cursor-pointer"
+                          title="Close Settings Panel"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
 
-                {/* Form Body Setting Widget */}
-                <div className="p-4 space-y-4 max-h-[740px] overflow-y-auto text-xs">
+                    {/* Form Body Setting Widget */}
+                    <div className="p-4 space-y-4 flex-1 overflow-y-auto text-xs">
                   {/* 1. Name • Input */}
                   <div>
                     <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
@@ -4550,12 +4565,12 @@ export function MonitoringPage() {
               /* DEFAULT PANEL: TAB WIDGETS (KATALOG 2 KOLOM) & SETTINGS  */
               /* ========================================================= */
               <>
-                {/* Header Tabs: WIDGETS | SETTINGS */}
-                <div className="grid grid-cols-2 text-center text-xs font-bold border-b border-slate-200">
+                {/* Header Tabs: WIDGETS | SETTINGS + Minimize button */}
+                <div className="flex items-center border-b border-slate-200 bg-slate-50 shrink-0">
                   <button
                     type="button"
                     onClick={() => setSidebarTab("widgets")}
-                    className={`py-3 transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                    className={`flex-1 py-3 transition cursor-pointer flex items-center justify-center gap-1.5 text-xs font-bold ${
                       sidebarTab === "widgets"
                         ? "bg-[#db4040] text-white font-extrabold shadow-inner"
                         : "bg-slate-100/80 text-slate-600 hover:bg-slate-200/70"
@@ -4567,7 +4582,7 @@ export function MonitoringPage() {
                   <button
                     type="button"
                     onClick={() => setSidebarTab("settings")}
-                    className={`py-3 transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                    className={`flex-1 py-3 transition cursor-pointer flex items-center justify-center gap-1.5 text-xs font-bold ${
                       sidebarTab === "settings"
                         ? "bg-[#db4040] text-white font-extrabold shadow-inner"
                         : "bg-slate-100/80 text-slate-600 hover:bg-slate-200/70"
@@ -4576,11 +4591,19 @@ export function MonitoringPage() {
                     <Settings className="h-3.5 w-3.5" />
                     <span>SETTINGS</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setSidebarMinimized(true)}
+                    className="p-3 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition cursor-pointer shrink-0"
+                    title="Minimize Sidebar"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
                 </div>
 
                 {/* Tab 1: WIDGETS PALETTE (2 COLUMNS) */}
                 {sidebarTab === "widgets" ? (
-                  <div className="p-3.5 max-h-[740px] overflow-y-auto">
+                  <div className="p-3.5 flex-1 overflow-y-auto">
                     <div className="mb-2 px-1 text-[11px] font-semibold text-slate-400">
                       Drag and drop widgets onto canvas:
                     </div>
@@ -4637,7 +4660,7 @@ export function MonitoringPage() {
                   </div>
                 ) : (
                   /* Tab 2: SECTION SETTINGS */
-                  <div className="p-4 space-y-4 max-h-[740px] overflow-y-auto">
+                  <div className="p-4 space-y-4 flex-1 overflow-y-auto">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
                         Active Section Name
@@ -4676,8 +4699,10 @@ export function MonitoringPage() {
                 )}
               </>
             )}
+              </div>
+            )}
           </div>
-        </div>
+        )}
       </div>
 
       {/* ========================================================================= */}
