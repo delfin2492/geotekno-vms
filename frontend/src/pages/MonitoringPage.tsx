@@ -428,10 +428,10 @@ function GaugeDial({
   const activeArc = normalized > 0.005 ? describeArc(110, 110, 82, -135, needleAngle) : ""
 
   return (
-    <div className="relative h-full w-full flex items-center justify-center p-0.5 select-none">
+    <div className="relative h-full w-full flex items-center justify-center p-1 select-none overflow-hidden">
       <svg
         viewBox="0 0 220 220"
-        className="h-full w-full max-h-56 max-w-56 overflow-visible filter drop-shadow-md"
+        className="h-full w-full max-h-full max-w-full aspect-square overflow-visible filter drop-shadow-md"
       >
         <defs>
           {/* Radial Dial Background */}
@@ -701,10 +701,10 @@ function CompassDial({
   const displayPrimary = hasPrimary ? Math.round(safePrimary).toString().padStart(3, "0") : "—"
 
   return (
-    <div className="relative h-full w-full flex items-center justify-center p-0.5 select-none">
+    <div className="relative h-full w-full flex items-center justify-center p-1 select-none overflow-hidden">
       <svg
         viewBox="0 0 220 220"
-        className="h-full w-full max-h-56 max-w-56 overflow-visible filter drop-shadow-md"
+        className="h-full w-full max-h-full max-w-full aspect-square overflow-visible filter drop-shadow-md"
       >
         <defs>
           {/* Radial Compass Dial Background */}
@@ -955,10 +955,14 @@ function TrendChart({
   vessel,
   attributeKey,
   config,
+  width = 460,
+  height = 200,
 }: {
   vessel: Vessel
   attributeKey?: string
   config?: WidgetConfig
+  width?: number
+  height?: number
 }) {
   const effectiveKey = attributeKey || "rpm"
   const meta = VESSEL_ATTRIBUTES.find((a) => a.key === effectiveKey)
@@ -1061,9 +1065,26 @@ function TrendChart({
   const diffVal = lastVal - firstVal
   const pctChange = firstVal !== 0 ? (diffVal / firstVal) * 100 : 0
 
-  // SVG Geometry
-  const svgWidth = 460
-  const svgHeight = 110
+  // Adaptive scale tiers based on widget width and height
+  const isXLarge = width >= 520 || height >= 240
+  const isLarge = width >= 360 || height >= 180
+  const isSmall = width < 260 || height < 130
+
+  const valSizeClass = isXLarge
+    ? "text-4xl lg:text-5xl font-black"
+    : isLarge
+    ? "text-3xl lg:text-4xl font-black"
+    : isSmall
+    ? "text-xl font-bold"
+    : "text-2xl font-black"
+
+  const unitSizeClass = isXLarge ? "text-sm" : isSmall ? "text-[10px]" : "text-xs"
+  const statsSizeClass = isLarge ? "text-xs" : isSmall ? "text-[9px]" : "text-[10px]"
+  const titleSizeClass = isLarge ? "text-xs" : isSmall ? "text-[9px]" : "text-[10px]"
+
+  // SVG Geometry - dynamic sizing to match container
+  const svgWidth = Math.max(280, width - 24)
+  const svgHeight = Math.max(60, Math.round(height * (isSmall ? 0.45 : 0.55)))
   const padLeft = 40
   const padRight = 14
   const padTop = 12
@@ -1136,19 +1157,19 @@ function TrendChart({
       {/* 1. Header Row: Value & Live Tag */}
       <div className="flex items-start justify-between gap-2">
         <div>
-          <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+          <div className={`flex items-center gap-1.5 font-bold text-slate-500 uppercase tracking-wide ${titleSizeClass}`}>
             <Icon className="h-3.5 w-3.5 text-[#db4040]" />
             <span>{meta?.label || effectiveKey}</span>
           </div>
           <div className="flex items-baseline gap-1.5 mt-0.5">
-            <span className="text-2xl font-black tabular-nums tracking-tight text-slate-800">
+            <span className={`tabular-nums tracking-tight text-slate-800 ${valSizeClass}`}>
               {currentVal.toLocaleString(undefined, {
                 minimumFractionDigits: decimals,
                 maximumFractionDigits: decimals,
               })}
             </span>
             {unit && (
-              <span className="text-xs font-bold text-slate-400">
+              <span className={`font-bold text-slate-400 ${unitSizeClass}`}>
                 {unit}
               </span>
             )}
@@ -1184,7 +1205,7 @@ function TrendChart({
       </div>
 
       {/* 2. Mini Stats Sub-row */}
-      <div className="flex items-center gap-3 text-[10px] font-medium text-slate-400 mt-0.5">
+      <div className={`flex items-center gap-3 font-medium text-slate-400 mt-0.5 ${statsSizeClass}`}>
         <span>
           Min: <strong className="font-bold text-slate-600">{minVal.toFixed(decimals)}</strong>
         </span>
@@ -1301,9 +1322,13 @@ function TrendChart({
 function BarChartWidget({
   vessel,
   config,
+  width = 300,
+  height = 200,
 }: {
   vessel: Vessel
   config?: WidgetConfig
+  width?: number
+  height?: number
 }) {
   const decimals = typeof config?.decimals === "number" ? config.decimals : 1
   const rawDepth = vessel.depth !== undefined && vessel.depth !== null ? vessel.depth : 0
@@ -1367,30 +1392,38 @@ function BarChartWidget({
   const shallowLimitPct = Math.min(100, Math.max(0, (5 / range) * 100))
   const cautionLimitPct = Math.min(100, Math.max(0, (10 / range) * 100))
 
+  // Adaptive scale tiers
+  const isLarge = width >= 420 || height >= 220
+  const isSmall = width < 250 || height < 140
+
+  const heroValClass = isLarge ? "text-4xl lg:text-5xl font-black" : isSmall ? "text-2xl font-bold" : "text-3xl font-black"
+  const rulerWidthClass = isLarge ? "w-16 pr-2.5" : isSmall ? "w-11 pr-1.5" : "w-13 pr-2"
+  const tickFontClass = isLarge ? "text-xs font-mono font-bold" : isSmall ? "text-[8px] font-mono font-semibold" : "text-[10px] font-mono font-bold"
+
   return (
-    <div className="flex h-full w-full flex-col justify-between select-none py-0.5">
+    <div className="flex h-full w-full flex-col justify-between select-none py-0.5 overflow-hidden">
       {/* 1. Top Readout & Status Header */}
-      <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
-        <div className="flex items-baseline gap-1">
-          <span className="text-3xl font-black text-slate-900 tabular-nums tracking-tight">
+      <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 shrink-0">
+        <div className="flex items-baseline gap-1 min-w-0">
+          <span className={`tabular-nums tracking-tight text-slate-900 ${heroValClass}`}>
             {rawDepth > 0 ? formatNum(rawDepth, decimals) : "—"}
           </span>
-          <span className="text-sm font-extrabold text-slate-500 uppercase">{unit}</span>
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1.5">
+          <span className={`font-extrabold text-slate-500 uppercase ${isLarge ? "text-base" : isSmall ? "text-xs" : "text-sm"}`}>{unit}</span>
+          <span className={`font-bold text-slate-400 uppercase tracking-wider ml-1.5 ${isLarge ? "text-xs" : "text-[10px]"}`}>
             Echosounder
           </span>
         </div>
 
-        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border shadow-2xs ${statusColor}`}>
+        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border shadow-2xs shrink-0 ${statusColor}`}>
           <span className={`h-2 w-2 rounded-full ${isShallow ? "bg-rose-500 animate-pulse" : isCaution ? "bg-amber-500" : isSafe ? "bg-emerald-500" : "bg-slate-400"}`} />
           <span>{statusText}</span>
         </div>
       </div>
 
       {/* 2. Main Visual Depth Instrument: Dual-Blue Water Column + Ruler */}
-      <div className="relative flex-1 my-2 rounded-2xl overflow-hidden border border-slate-200/90 shadow-sm flex bg-slate-950 min-h-[140px]">
+      <div className="relative flex-1 my-1.5 rounded-2xl overflow-hidden border border-slate-200/90 shadow-sm flex bg-slate-950 min-h-[90px]">
         {/* Left: Graduated Depth Scale Ruler */}
-        <div className="relative w-13 bg-slate-900 border-r border-slate-800 flex flex-col justify-between py-2 text-right pr-2 shrink-0 select-none z-20">
+        <div className={`relative bg-slate-900 border-r border-slate-800 flex flex-col justify-between py-2 text-right shrink-0 select-none z-20 ${rulerWidthClass}`}>
           {/* Risk Zone Color Bar on the inner edge of ruler */}
           <div className="absolute top-0 right-0 bottom-0 w-1 flex flex-col pointer-events-none">
             {/* Red Shallow Strip (<5m) */}
@@ -1412,7 +1445,7 @@ function BarChartWidget({
           {/* Depth Tick Labels with graduation lines */}
           {ticks.map((t) => (
             <div key={t.pct} className="relative flex items-center justify-end">
-              <span className="text-[10px] font-mono font-bold text-slate-300 leading-none">
+              <span className={`leading-none text-slate-300 ${tickFontClass}`}>
                 {t.val}m
               </span>
               <span className="inline-block w-1.5 h-[1px] bg-slate-600 ml-1" />
@@ -1551,7 +1584,17 @@ function getIconForAttribute(key: string, _category: string) {
   return Activity
 }
 
-function TableWidget({ vessel, config }: { vessel: Vessel; config?: WidgetConfig }) {
+function TableWidget({
+  vessel,
+  config,
+  width = 400,
+  height = 220,
+}: {
+  vessel: Vessel
+  config?: WidgetConfig
+  width?: number
+  height?: number
+}) {
   const [categoryFilter, setCategoryFilter] = useState<string>(config?.defaultCategory || "all")
   const [registeredAttrs, setRegisteredAttrs] = useState<AssetAttribute[]>([])
 
@@ -1838,6 +1881,24 @@ function TableWidget({ vessel, config }: { vessel: Vessel; config?: WidgetConfig
     }
   }, [categoryFilter, categories])
 
+  // Adaptive scale tiers based on widget width and height
+  const isXLarge = width >= 540 || height >= 260
+  const isLarge = width >= 380 || height >= 200
+  const isSmall = width < 280 || height < 140
+  const isNarrow = width < 340
+
+  const cellPad = isXLarge ? "py-2.5 px-3" : isSmall ? "py-1 px-1.5" : "py-1.5 px-2"
+  const valTextClass = isXLarge ? "text-sm font-black" : isSmall ? "text-[10px] font-bold" : "text-xs font-black"
+  const labelTextClass = isXLarge ? "text-xs font-bold" : isSmall ? "text-[10px] font-semibold" : "text-[11px] font-bold"
+  const catTextClass = isXLarge ? "text-[10px]" : "text-[9px]"
+  const iconSizeClass = isXLarge ? "h-3.5 w-3.5" : isSmall ? "h-2.5 w-2.5" : "h-3 w-3"
+  const iconBoxClass = isXLarge ? "p-2 rounded-lg" : isSmall ? "p-1 rounded" : "p-1.5 rounded-md"
+  const chipClass = isXLarge ? "px-2.5 py-1 text-xs" : isSmall ? "px-1.5 py-0.5 text-[9px]" : "px-2 py-0.5 text-[10px]"
+  const statusBadgeClass = isXLarge ? "px-2.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-[9px]"
+
+  const showStatusCol = config?.showStatus !== false && !isNarrow
+  const showTimestampCol = config?.showTimestamp !== false && width >= 400
+
   return (
     <div className="h-full flex flex-col justify-between select-none">
       {/* Category filter bar */}
@@ -1850,7 +1911,7 @@ function TableWidget({ vessel, config }: { vessel: Vessel; config?: WidgetConfig
                 key={c.key}
                 type="button"
                 onClick={() => setCategoryFilter(c.key)}
-                className={`px-2 py-0.5 rounded-lg text-[10px] font-bold whitespace-nowrap transition cursor-pointer select-none ${
+                className={`rounded-lg font-bold whitespace-nowrap transition cursor-pointer select-none ${chipClass} ${
                   isActive
                     ? "bg-[#db4040] text-white shadow-xs"
                     : "bg-slate-100 text-slate-600 hover:bg-slate-200/80"
@@ -1870,11 +1931,11 @@ function TableWidget({ vessel, config }: { vessel: Vessel; config?: WidgetConfig
             <tr>
               <th className="py-1 px-2">Sensor / Parameter</th>
               <th className="py-1 px-2 text-right">Live Value</th>
-              {config?.showStatus !== false && <th className="py-1 px-2 text-center">Status</th>}
-              {config?.showTimestamp !== false && <th className="py-1 px-2 text-right">Update</th>}
+              {showStatusCol && <th className="py-1 px-2 text-center">Status</th>}
+              {showTimestampCol && <th className="py-1 px-2 text-right">Update</th>}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100/80 text-[11px]">
+          <tbody className="divide-y divide-slate-100/80">
             {filteredRows.map((r, i) => {
               const Icon = r.icon
               return (
@@ -1885,16 +1946,16 @@ function TableWidget({ vessel, config }: { vessel: Vessel; config?: WidgetConfig
                   }`}
                 >
                   {/* Parameter & Category */}
-                  <td className="py-1.5 px-2">
+                  <td className={cellPad}>
                     <div className="flex items-center gap-2">
-                      <span className="p-1.5 rounded-md bg-slate-100 text-slate-600 shrink-0">
-                        <Icon className="h-3 w-3" />
+                      <span className={`bg-slate-100 text-slate-600 shrink-0 ${iconBoxClass}`}>
+                        <Icon className={iconSizeClass} />
                       </span>
                       <div className="min-w-0">
-                        <div className="font-bold text-slate-800 text-[11px] truncate">
+                        <div className={`text-slate-800 truncate ${labelTextClass}`}>
                           {r.label}
                         </div>
-                        <div className="text-[9px] font-semibold text-slate-400">
+                        <div className={`font-semibold text-slate-400 ${catTextClass}`}>
                           {r.category}
                         </div>
                       </div>
@@ -1902,22 +1963,22 @@ function TableWidget({ vessel, config }: { vessel: Vessel; config?: WidgetConfig
                   </td>
 
                   {/* Value & Unit */}
-                  <td className="py-1.5 px-2 text-right whitespace-nowrap">
-                    <span className="font-black text-slate-900 tabular-nums text-xs">
+                  <td className={`${cellPad} text-right whitespace-nowrap`}>
+                    <span className={`text-slate-900 tabular-nums ${valTextClass}`}>
                       {r.valueStr}
                     </span>
                     {r.unit && (
-                      <span className="ml-1 text-[10px] font-bold text-slate-400">
+                      <span className={`ml-1 font-bold text-slate-400 ${catTextClass}`}>
                         {r.unit}
                       </span>
                     )}
                   </td>
 
                   {/* Health / Status Badge */}
-                  {config?.showStatus !== false && (
-                    <td className="py-1.5 px-2 text-center whitespace-nowrap">
+                  {showStatusCol && (
+                    <td className={`${cellPad} text-center whitespace-nowrap`}>
                       <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold border ${
+                        className={`inline-flex items-center gap-1 rounded-full font-extrabold border ${statusBadgeClass} ${
                           r.status === "critical"
                             ? "bg-rose-50 text-rose-700 border-rose-200"
                             : r.status === "warning"
@@ -1940,8 +2001,8 @@ function TableWidget({ vessel, config }: { vessel: Vessel; config?: WidgetConfig
                   )}
 
                   {/* Last Update */}
-                  {config?.showTimestamp !== false && (
-                    <td className="py-1.5 px-2 text-right whitespace-nowrap text-[10px] font-semibold text-slate-400">
+                  {showTimestampCol && (
+                    <td className={`${cellPad} text-right whitespace-nowrap font-semibold text-slate-400 ${catTextClass}`}>
                       {r.lastSeen}
                     </td>
                   )}
@@ -1955,34 +2016,53 @@ function TableWidget({ vessel, config }: { vessel: Vessel; config?: WidgetConfig
   )
 }
 
-function GatewayWidget({ vessel }: { vessel: Vessel }) {
+function GatewayWidget({
+  vessel,
+  width = 300,
+  height = 180,
+}: {
+  vessel: Vessel
+  width?: number
+  height?: number
+}) {
+  const isLarge = width >= 360 || height >= 200
+  const isSmall = width < 250 || height < 130
+
+  const iconBoxClass = isLarge ? "p-3 rounded-2xl" : isSmall ? "p-1.5 rounded-lg" : "p-2 rounded-xl"
+  const iconSizeClass = isLarge ? "h-6 w-6" : isSmall ? "h-3.5 w-3.5" : "h-4 w-4"
+  const titleClass = isLarge ? "text-sm font-bold text-slate-800" : isSmall ? "text-[11px] font-bold text-slate-800" : "text-xs font-bold text-slate-800"
+  const subtitleClass = isLarge ? "text-xs text-slate-400" : isSmall ? "text-[9px] text-slate-400" : "text-[10px] text-slate-400"
+  const cardPad = isLarge ? "p-3" : isSmall ? "p-1.5" : "p-2"
+  const cardValClass = isLarge ? "text-sm font-extrabold" : isSmall ? "text-[11px] font-bold" : "text-xs font-bold"
+  const footerClass = isLarge ? "text-xs pt-1.5" : isSmall ? "text-[9px] pt-0.5" : "text-[10px] pt-1"
+
   return (
-    <div className="h-full flex flex-col justify-between py-1">
+    <div className="h-full flex flex-col justify-between py-1 select-none">
       <div className="flex items-center gap-2.5">
-        <div className="p-2 rounded-xl bg-red-50 text-[#db4040] border border-red-200">
-          <Server className="h-4 w-4" />
+        <div className={`bg-red-50 text-[#db4040] border border-red-200 shrink-0 ${iconBoxClass}`}>
+          <Server className={iconSizeClass} />
         </div>
         <div>
-          <div className="text-xs font-bold text-slate-800">Gateway TCP 20005</div>
-          <div className="text-[10px] text-slate-400">Hybrid CAN / NMEA 2000 & RS-485</div>
+          <div className={titleClass}>Gateway TCP 20005</div>
+          <div className={subtitleClass}>Hybrid CAN / NMEA 2000 & RS-485</div>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2 mt-2">
-        <div className="rounded-lg bg-slate-50 p-2 border border-slate-100">
+        <div className={`rounded-lg bg-slate-50 border border-slate-100 ${cardPad}`}>
           <div className="text-[9px] text-slate-400">Link Status</div>
-          <div className="text-xs font-bold text-[#db4040] flex items-center gap-1 mt-0.5">
+          <div className={`text-[#db4040] flex items-center gap-1 mt-0.5 ${cardValClass}`}>
             <span className="h-2 w-2 rounded-full bg-[#db4040] animate-pulse" />
             Online
           </div>
         </div>
-        <div className="rounded-lg bg-slate-50 p-2 border border-slate-100">
+        <div className={`rounded-lg bg-slate-50 border border-slate-100 ${cardPad}`}>
           <div className="text-[9px] text-slate-400">Vessel</div>
-          <div className="text-xs font-bold text-slate-800 truncate mt-0.5">
+          <div className={`text-slate-800 truncate mt-0.5 ${cardValClass}`}>
             {vessel.name}
           </div>
         </div>
       </div>
-      <div className="text-[10px] text-slate-400 flex justify-between items-center pt-1 border-t border-slate-100">
+      <div className={`text-slate-400 flex justify-between items-center border-t border-slate-100 ${footerClass}`}>
         <span>Decoders: NMEA2000 + NMEA0183</span>
         <span className="font-mono text-slate-600 font-bold">1248 pkt/min</span>
       </div>
@@ -1990,7 +2070,17 @@ function GatewayWidget({ vessel }: { vessel: Vessel }) {
   )
 }
 
-function MapWidget({ vessel, config }: { vessel: Vessel; config?: WidgetConfig }) {
+function MapWidget({
+  vessel,
+  config,
+  width = 400,
+  height = 260,
+}: {
+  vessel: Vessel
+  config?: WidgetConfig
+  width?: number
+  height?: number
+}) {
   const { tracks, aisTargets: fallbackAisTargets = [] } = useFleet()
   const track = tracks[vessel.id] || []
   const [liveAisTargets, setLiveAisTargets] = useState<AisTarget[] | null>(null)
@@ -2105,7 +2195,9 @@ function MapWidget({ vessel, config }: { vessel: Vessel; config?: WidgetConfig }
 
       {/* 2. Top-Left Live Status HUD */}
       <div className="absolute top-2 left-2 z-[10] flex flex-col gap-1 pointer-events-none">
-        <div className="flex items-center gap-1.5 rounded-lg bg-slate-900/85 text-white px-2.5 py-1 text-[10px] font-semibold shadow-md border border-slate-700/80 backdrop-blur-md">
+        <div className={`flex items-center gap-1.5 rounded-lg bg-slate-900/85 text-white shadow-md border border-slate-700/80 backdrop-blur-md ${
+          width >= 500 ? "px-3 py-1.5 text-xs" : width < 300 || height < 180 ? "px-2 py-0.5 text-[9px]" : "px-2.5 py-1 text-[10px] font-semibold"
+        }`}>
           <span className="h-2 w-2 rounded-full bg-[#db4040] animate-pulse shrink-0" />
           <span className="font-bold text-white truncate max-w-[130px]">
             {vessel.name}
@@ -2114,8 +2206,10 @@ function MapWidget({ vessel, config }: { vessel: Vessel; config?: WidgetConfig }
             {hasPos ? `${formatNum(lat, 4)}°, ${formatNum(lng, 4)}°` : "No GPS Fix"}
           </span>
         </div>
-        {hasPos && (
-          <div className="flex items-center gap-2 text-[9px] font-semibold text-slate-200 bg-slate-900/75 rounded-md px-2 py-0.5 border border-slate-700/60 backdrop-blur-md w-fit">
+        {hasPos && height >= 180 && (
+          <div className={`flex items-center gap-2 font-semibold text-slate-200 bg-slate-900/75 rounded-md px-2 py-0.5 border border-slate-700/60 backdrop-blur-md w-fit ${
+            width >= 500 ? "text-[10px]" : "text-[9px]"
+          }`}>
             <span>HDG: <strong className="text-white">{Math.round(vessel.heading ?? 0)}°</strong></span>
             <span className="text-slate-500">•</span>
             <span>SOG: <strong className="text-white">{formatNum(vessel.sog, 1)} kn</strong></span>
@@ -2264,10 +2358,14 @@ function DynamicAttributeCard({
   vessel,
   attributeKey,
   config,
+  width = 280,
+  height = 180,
 }: {
   vessel: Vessel
   attributeKey: string
   config?: WidgetConfig
+  width?: number
+  height?: number
 }) {
   const meta = VESSEL_ATTRIBUTES.find((a) => a.key === attributeKey)
   const Icon = meta?.icon || Activity
@@ -2295,24 +2393,61 @@ function DynamicAttributeCard({
     valDisplay = meta.getFormatted(vessel)
   }
 
+  // Adaptive scale tier based on widget width and height
+  const isXLarge = width >= 520 || height >= 240
+  const isLarge = width >= 360 || height >= 180
+  const isSmall = width < 230 || height < 120
+
+  const valSizeClass = isXLarge
+    ? "text-5xl lg:text-6xl font-black"
+    : isLarge
+    ? "text-4xl lg:text-5xl font-black"
+    : isSmall
+    ? "text-2xl font-bold"
+    : "text-3xl font-extrabold"
+
+  const unitSizeClass = isXLarge
+    ? "text-base font-bold ml-2"
+    : isLarge
+    ? "text-sm font-bold ml-1.5"
+    : isSmall
+    ? "text-[10px] ml-1"
+    : "text-xs font-semibold ml-1.5"
+
+  const iconBoxClass = isXLarge
+    ? "p-4 rounded-2xl"
+    : isLarge
+    ? "p-3.5 rounded-2xl"
+    : isSmall
+    ? "p-2 rounded-xl"
+    : "p-3 rounded-2xl"
+
+  const iconSizeClass = isXLarge
+    ? "h-11 w-11"
+    : isLarge
+    ? "h-8 w-8"
+    : isSmall
+    ? "h-5 w-5"
+    : "h-7 w-7"
+
   return (
-    <div className="flex h-full items-center justify-between px-1">
-      <div>
-        <div className="text-3xl font-bold tabular-nums text-slate-800">
+    <div className="flex h-full items-center justify-between px-2 overflow-hidden select-none">
+      <div className="min-w-0 pr-2">
+        <div className={`tracking-tight tabular-nums text-slate-800 ${valSizeClass}`}>
           {valDisplay}
           {unitDisplay && (
-            <span className="ml-1.5 text-xs font-semibold text-slate-400">
+            <span className={`text-slate-400 uppercase font-bold ${unitSizeClass}`}>
               {unitDisplay}
             </span>
           )}
         </div>
-        <div className="mt-2 flex items-center gap-1.5 text-[9px] font-semibold text-slate-400">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-          <span>{formatDateTimeWithSeconds(vessel.updatedAt)}</span>
+        <div className="mt-1.5 flex items-center gap-1.5 text-[9px] font-semibold text-slate-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+          <span className="truncate">{formatDateTimeWithSeconds(vessel.updatedAt)}</span>
         </div>
       </div>
-      <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100 text-[#db4040]">
-        <Icon className="h-7 w-7" />
+      <div className={`shrink-0 bg-slate-50 border border-slate-100 text-[#db4040] shadow-2xs ${iconBoxClass}`}>
+        <Icon className={iconSizeClass} />
       </div>
     </div>
   )
@@ -2332,11 +2467,15 @@ function KpiWidgetCard({
   vessel,
   attributeKey,
   config,
+  width = 320,
+  height = 200,
 }: {
   vessel: Vessel
   attributeKey: string
   title?: string
   config?: WidgetConfig
+  width?: number
+  height?: number
 }) {
   const meta = VESSEL_ATTRIBUTES.find((a) => a.key === attributeKey)
   const Icon = meta?.icon || Zap
@@ -2399,10 +2538,34 @@ function KpiWidgetCard({
   const avgDisplay = `${formatNum(avgVal, decimals)}${unitDisplay ? ` ${unitDisplay}` : ""}`
   const peakDisplay = `${formatNum(peakVal, decimals)}${unitDisplay ? ` ${unitDisplay}` : ""}`
 
+  // Adaptive scale tiers
+  const isXLarge = width >= 540 || height >= 240
+  const isLarge = width >= 380 || height >= 190
+  const isSmall = width < 250 || height < 130
+
+  const heroValClass = isXLarge
+    ? "text-5xl lg:text-6xl font-black"
+    : isLarge
+    ? "text-4xl lg:text-5xl font-black"
+    : isSmall
+    ? "text-2xl font-bold"
+    : "text-3xl lg:text-4xl font-extrabold"
+
+  const deltaPctClass = isXLarge
+    ? "text-xl font-black"
+    : isLarge
+    ? "text-lg font-extrabold"
+    : isSmall
+    ? "text-xs font-bold"
+    : "text-base font-extrabold"
+
+  const stemW = isXLarge ? 26 : isLarge ? 24 : isSmall ? 16 : 22
+  const stemH = isXLarge ? 56 : isLarge ? 48 : isSmall ? 32 : 46
+
   return (
-    <div className="flex h-full w-full flex-col justify-between select-none">
+    <div className="flex h-full w-full flex-col justify-between select-none overflow-hidden py-0.5">
       {/* 1. Header Row: Attribute Identity + Dropdown Filter */}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-1.5 min-w-0">
           <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-red-50 text-[#db4040] border border-red-100/70">
             <Icon className="h-3.5 w-3.5" />
@@ -2430,16 +2593,16 @@ function KpiWidgetCard({
         </div>
       </div>
 
-      {/* 2. Hero KPI Metric & Vertical Trend Graph (Matching Design in Gambar 1) */}
+      {/* 2. Hero KPI Metric & Vertical Trend Graph */}
       <div className="flex items-center justify-between gap-3 my-auto py-1">
         {/* Left: Main Live Metric Value */}
-        <div className="flex flex-col">
+        <div className="flex flex-col min-w-0">
           <div className="flex items-baseline">
-            <span className="text-3xl lg:text-4xl font-extrabold tracking-tight text-slate-900 tabular-nums">
+            <span className={`tracking-tight text-slate-900 tabular-nums ${heroValClass}`}>
               {valDisplay}
             </span>
             {unitDisplay && (
-              <span className="ml-1.5 text-xs font-bold text-slate-400 uppercase">
+              <span className={`font-bold text-slate-400 uppercase ${isLarge ? "ml-2 text-sm" : isSmall ? "ml-1 text-[10px]" : "ml-1.5 text-xs"}`}>
                 {unitDisplay}
               </span>
             )}
@@ -2449,9 +2612,9 @@ function KpiWidgetCard({
           </span>
         </div>
 
-        {/* Right: Vertical Graph from Gambar 1 (Stem with top tick ┌ and delta info) */}
-        <div className="flex items-start gap-2.5 shrink-0 pr-1">
-          <svg width="22" height="46" viewBox="0 0 22 46" className="overflow-visible shrink-0">
+        {/* Right: Vertical Graph from Gambar 1 */}
+        <div className="flex items-start gap-2 shrink-0 pr-1">
+          <svg width={stemW} height={stemH} viewBox="0 0 22 46" className="overflow-visible shrink-0">
             {/* Top Left Tick (┌) */}
             <line
               x1="4"
@@ -2476,10 +2639,10 @@ function KpiWidgetCard({
 
           {/* Delta Text beside top tick */}
           <div className="flex flex-col justify-start">
-            <span className={`text-base font-extrabold tracking-tight leading-none ${isPositive ? "text-emerald-700" : "text-rose-700"}`}>
+            <span className={`tracking-tight leading-none ${deltaPctClass} ${isPositive ? "text-emerald-700" : "text-rose-700"}`}>
               {isPositive ? "+" : ""}{activeDelta.percent.toFixed(1)}%
             </span>
-            <span className="mt-1 text-[11px] font-bold text-slate-700 leading-tight">
+            <span className={`mt-0.5 font-bold text-slate-700 leading-tight ${isLarge ? "text-xs" : isSmall ? "text-[9px]" : "text-[11px]"}`}>
               {isPositive ? "+" : ""}{activeDelta.decimal.toFixed(decimals > 0 ? decimals : 1)}{unitDisplay ? ` ${unitDisplay}` : ""}
             </span>
             <span className="text-[9px] font-medium text-slate-400 leading-tight mt-0.5">
@@ -2490,7 +2653,7 @@ function KpiWidgetCard({
       </div>
 
       {/* 3. KPI Operational Benchmarks / Status Summary */}
-      <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[10px]">
+      <div className={`flex items-center justify-between pt-1 border-t border-slate-100 shrink-0 ${isLarge ? "text-xs" : isSmall ? "text-[9px]" : "text-[10px]"}`}>
         <div className="flex items-center gap-1">
           <span className="text-slate-400 font-medium">Avg:</span>
           <span className="font-bold text-slate-700">{avgDisplay}</span>
@@ -2508,12 +2671,45 @@ function KpiWidgetCard({
   )
 }
 
+function AdaptiveWidgetBox({
+  children,
+}: {
+  children: (dim: { width: number; height: number }) => React.ReactNode
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [dim, setDim] = useState<{ width: number; height: number }>({ width: 320, height: 200 })
+
+  useEffect(() => {
+    if (!containerRef.current) return
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect
+        if (width > 0 && height > 0) {
+          setDim({ width: Math.round(width), height: Math.round(height) })
+        }
+      }
+    })
+    ro.observe(containerRef.current)
+    return () => ro.disconnect()
+  }, [])
+
+  return (
+    <div ref={containerRef} className="h-full w-full overflow-hidden">
+      {children(dim)}
+    </div>
+  )
+}
+
 function WidgetContent({
   widget,
   vessel,
+  width = 320,
+  height = 200,
 }: {
   widget: WidgetDef
   vessel: Vessel
+  width?: number
+  height?: number
 }) {
   const cfg = widget.config || {}
   const meta = VESSEL_ATTRIBUTES.find((a) => a.key === widget.attributeKey)
@@ -2592,6 +2788,8 @@ function WidgetContent({
         vessel={vessel}
         attributeKey={widget.attributeKey || "depth"}
         config={cfg}
+        width={width}
+        height={height}
       />
     )
   }
@@ -2603,22 +2801,33 @@ function WidgetContent({
         attributeKey={widget.attributeKey || "fuel"}
         title={widget.title}
         config={cfg}
+        width={width}
+        height={height}
       />
     )
   }
 
   if (widget.type === "chart") {
-    return <TrendChart vessel={vessel} attributeKey={widget.attributeKey} config={cfg} />
+    return <TrendChart vessel={vessel} attributeKey={widget.attributeKey} config={cfg} width={width} height={height} />
   }
 
-  if (widget.type === "bar") return <BarChartWidget vessel={vessel} config={cfg} />
-  if (widget.type === "table") return <TableWidget vessel={vessel} config={cfg} />
-  if (widget.type === "gateway") return <GatewayWidget vessel={vessel} />
-  if (widget.type === "map") return <MapWidget vessel={vessel} config={cfg} />
+  if (widget.type === "bar") return <BarChartWidget vessel={vessel} config={cfg} width={width} height={height} />
+  if (widget.type === "table") return <TableWidget vessel={vessel} config={cfg} width={width} height={height} />
+  if (widget.type === "gateway") return <GatewayWidget vessel={vessel} width={width} height={height} />
+  if (widget.type === "map") return <MapWidget vessel={vessel} config={cfg} width={width} height={height} />
 
-  // Machinery Matrix
+  // Machinery Matrix - dynamic adaptive scaling
+  const isWideAndShort = width >= 480 && height < 220
+  const isLargeEngine = width >= 380 || height >= 200
+  const isSmallEngine = width < 250 || height < 130
+
+  const engineCardPad = isLargeEngine ? "p-3.5" : isSmallEngine ? "p-1.5" : "p-2.5"
+  const engineValClass = isLargeEngine ? "text-base font-extrabold" : isSmallEngine ? "text-[10px] font-bold" : "text-[11px] font-bold"
+  const engineLabelClass = isLargeEngine ? "text-xs font-semibold" : isSmallEngine ? "text-[8px]" : "text-[9px]"
+  const engineIconClass = isLargeEngine ? "h-4 w-4" : isSmallEngine ? "h-3 w-3" : "h-3.5 w-3.5"
+
   return (
-    <div className="grid h-full grid-cols-2 gap-2">
+    <div className={`grid h-full gap-2 ${isWideAndShort ? "grid-cols-4" : "grid-cols-2"}`}>
       {[
         ["Main engine", vessel.rpm ? `${Math.round(vessel.rpm)} RPM` : "—", Activity],
         ["Engine load", `${formatNum(vessel.engineLoad, 0)}%`, Gauge],
@@ -2627,12 +2836,12 @@ function WidgetContent({
       ].map(([label, value, Icon]) => {
         const MetricIcon = Icon as typeof Activity
         return (
-          <div key={String(label)} className="rounded-xl bg-slate-50 p-2.5">
+          <div key={String(label)} className={`rounded-xl bg-slate-50 flex flex-col justify-between ${engineCardPad}`}>
             <div className="flex items-center justify-between">
-              <span className="text-[9px] text-slate-400">{String(label)}</span>
-              <MetricIcon className="h-3.5 w-3.5 text-[#db4040]" />
+              <span className={`text-slate-400 ${engineLabelClass}`}>{String(label)}</span>
+              <MetricIcon className={`text-[#db4040] ${engineIconClass}`} />
             </div>
-            <div className="mt-1 text-[11px] font-bold text-slate-800">{String(value)}</div>
+            <div className={`mt-1 text-slate-800 ${engineValClass}`}>{String(value)}</div>
           </div>
         )
       })}
@@ -3850,8 +4059,17 @@ export function MonitoringPage() {
                         </div>
 
                         {/* Content Area Widget */}
-                        <div className="h-[calc(100%-35px)] p-3">
-                          <WidgetContent widget={widget} vessel={widgetVessel} />
+                        <div className="h-[calc(100%-35px)] p-2 sm:p-3">
+                          <AdaptiveWidgetBox>
+                            {({ width, height }) => (
+                              <WidgetContent
+                                widget={widget}
+                                vessel={widgetVessel}
+                                width={width}
+                                height={height}
+                              />
+                            )}
+                          </AdaptiveWidgetBox>
                         </div>
                       </div>
                     )
