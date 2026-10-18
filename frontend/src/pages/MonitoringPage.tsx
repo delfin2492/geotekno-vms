@@ -3521,6 +3521,7 @@ export function MonitoringPage() {
     )
   }
 
+  return (
     <main
       ref={mainContainerRef}
       className={`mx-auto w-full transition-all duration-200 ${
