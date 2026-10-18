@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   Responsive,
   WidthProvider,
@@ -27,6 +27,8 @@ import {
   Layers,
   LayoutGrid,
   Map,
+  Maximize,
+  Minimize,
   Navigation,
   Pencil,
   Plus,
@@ -2743,6 +2745,42 @@ const PALETTE_WIDGETS: PaletteItem[] = [
 
 export function MonitoringPage() {
   const { vessels } = useFleet()
+  const mainContainerRef = useRef<HTMLElement>(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  // Sync fullscreen state with browser events (including Esc key exit)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isCurrentlyFull = !!document.fullscreenElement
+      setIsFullscreen(isCurrentlyFull)
+      setTimeout(() => {
+        window.dispatchEvent(new Event("resize"))
+      }, 150)
+    }
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange)
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange)
+    }
+  }, [])
+
+  const toggleFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        if (mainContainerRef.current?.requestFullscreen) {
+          await mainContainerRef.current.requestFullscreen()
+        } else if (document.documentElement.requestFullscreen) {
+          await document.documentElement.requestFullscreen()
+        }
+      } else {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen()
+        }
+      }
+    } catch (err) {
+      console.error("Failed to toggle fullscreen:", err)
+    }
+  }
 
   // MODE: "view" (full canvas, hide sidebar) vs "modify" (show inline sidebar palette & settings, allow drag/resize)
   const [dashboardMode, setDashboardMode] = useState<"view" | "modify">("view")
@@ -3483,8 +3521,14 @@ export function MonitoringPage() {
     )
   }
 
-  return (
-    <main className="mx-auto max-w-[1850px] p-2 sm:p-4">
+    <main
+      ref={mainContainerRef}
+      className={`mx-auto w-full transition-all duration-200 ${
+        isFullscreen
+          ? "bg-slate-50 min-h-screen p-3 sm:p-5 overflow-y-auto"
+          : "max-w-[1850px] p-2 sm:p-4"
+      }`}
+    >
       {/* Toast Save Feedback */}
       {saveToast && (
         <div
@@ -3625,6 +3669,30 @@ export function MonitoringPage() {
               </button>
             </>
           )}
+
+          {/* FULLSCREEN TOGGLE BUTTON */}
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-bold transition shadow-xs cursor-pointer ${
+              isFullscreen
+                ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                : "border-slate-300 bg-white hover:bg-slate-50 text-slate-700"
+            }`}
+            title={isFullscreen ? "Exit Fullscreen (Esc)" : "Enter Fullscreen Mode"}
+          >
+            {isFullscreen ? (
+              <>
+                <Minimize className="h-3.5 w-3.5 text-amber-600" />
+                <span className="hidden sm:inline">Exit Fullscreen</span>
+              </>
+            ) : (
+              <>
+                <Maximize className="h-3.5 w-3.5 text-slate-500" />
+                <span className="hidden sm:inline">Fullscreen</span>
+              </>
+            )}
+          </button>
 
           {/* SINGLE TOGGLE BUTTON: VIEW MODE <-> MODIFY MODE */}
           {dashboardMode === "view" ? (
