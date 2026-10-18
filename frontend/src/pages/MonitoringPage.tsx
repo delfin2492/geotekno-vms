@@ -27,8 +27,8 @@ import {
   Layers,
   LayoutGrid,
   Map,
-  Maximize,
-  Minimize,
+  Maximize2,
+  Minimize2,
   Navigation,
   Pencil,
   Plus,
@@ -3671,27 +3671,22 @@ export function MonitoringPage() {
             </>
           )}
 
-          {/* FULLSCREEN TOGGLE BUTTON */}
+          {/* FULLSCREEN TOGGLE BUTTON (MARINE TRAFFIC STYLE) */}
           <button
             type="button"
             onClick={toggleFullscreen}
-            className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-bold transition shadow-xs cursor-pointer ${
+            className={`grid h-8 w-8 place-items-center rounded-xl border transition shadow-xs cursor-pointer ${
               isFullscreen
-                ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
-                : "border-slate-300 bg-white hover:bg-slate-50 text-slate-700"
+                ? "border-slate-300 bg-slate-100 text-[#db4040] hover:bg-slate-200"
+                : "border-slate-300 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900"
             }`}
-            title={isFullscreen ? "Exit Fullscreen (Esc)" : "Enter Fullscreen Mode"}
+            title={isFullscreen ? "Keluar Layar Penuh (Esc)" : "Layar Penuh"}
+            aria-label="Toggle Fullscreen"
           >
             {isFullscreen ? (
-              <>
-                <Minimize className="h-3.5 w-3.5 text-amber-600" />
-                <span className="hidden sm:inline">Exit Fullscreen</span>
-              </>
+              <Minimize2 className="h-4 w-4" />
             ) : (
-              <>
-                <Maximize className="h-3.5 w-3.5 text-slate-500" />
-                <span className="hidden sm:inline">Fullscreen</span>
-              </>
+              <Maximize2 className="h-4 w-4" />
             )}
           </button>
 
@@ -3756,11 +3751,20 @@ export function MonitoringPage() {
             ) : (() => {
               const rawLayouts = activeSection.layouts || { lg: [] }
               const primaryLayout = rawLayouts.lg && rawLayouts.lg.length > 0 ? rawLayouts.lg : rawLayouts.md || []
+
+              // Normalisasi koordinat y: cegah offset kosong di bagian atas canvas
+              const minY = primaryLayout.length > 0
+                ? Math.min(...primaryLayout.map((item) => (typeof item.y === "number" ? item.y : 0)))
+                : 0
+              const normalizedPrimary = minY > 0
+                ? primaryLayout.map((item) => ({ ...item, y: Math.max(0, item.y - minY) }))
+                : primaryLayout
+
               const effectiveLayouts: ResponsiveLayouts = {
                 ...rawLayouts,
-                lg: primaryLayout,
-                md: primaryLayout,
-                sm: primaryLayout,
+                lg: normalizedPrimary,
+                md: normalizedPrimary,
+                sm: normalizedPrimary,
               }
               return (
                 <ResponsiveGrid
@@ -3770,6 +3774,8 @@ export function MonitoringPage() {
                   cols={{ lg: 12, md: 12, sm: 12, xs: 1 }}
                   rowHeight={44}
                   margin={[12, 12]}
+                  compactType="vertical"
+                  preventCollision={false}
                   isDraggable={dashboardMode === "modify"}
                   isResizable={dashboardMode === "modify"}
                   isDroppable={dashboardMode === "modify"}
