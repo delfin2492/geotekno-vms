@@ -242,7 +242,7 @@ export function MarineTrafficPage() {
   return (
     <main
       ref={mapWorkspace}
-      className="relative h-[calc(100vh-68px)] w-full overflow-hidden bg-slate-900"
+      className="marine-traffic-workspace relative h-[calc(100vh-68px)] w-full overflow-hidden bg-slate-900"
     >
       <div className="flex h-full w-full">
         <aside

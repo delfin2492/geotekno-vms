@@ -3718,7 +3718,7 @@ export function MonitoringPage() {
         {/* Canvas Area: flex-1 dynamically expands and shrinks smoothly */}
         <div className="flex-1 w-full min-w-0 transition-all duration-300">
           <div
-            className={`rounded-2xl transition duration-200 min-h-[750px] relative overflow-hidden ${
+            className={`rounded-2xl transition duration-200 min-h-[480px] relative overflow-hidden ${
               dashboardMode === "modify"
                 ? "border border-slate-200/90 p-2 sm:p-2.5 shadow-xs"
                 : "p-0.5 border-transparent"

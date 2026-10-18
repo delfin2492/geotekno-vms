@@ -367,7 +367,7 @@ img.dark-invert-tiles,
   border-radius: 0 !important;
 }
 
-*:fullscreen > div {
+.marine-traffic-workspace:fullscreen > div {
   height: 100vh !important;
 }
 
