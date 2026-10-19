@@ -193,7 +193,7 @@ export function DataExportPage() {
     return new Date().toISOString().slice(0, 16)
   })
   const [samplingInterval, setSamplingInterval] = useState<SamplingInterval>("raw")
-  const [fileFormat, setFileFormat] = useState<FileFormat>("csv")
+  const [fileFormat] = useState<FileFormat>("excel")
 
   // Dynamic vessel registered attributes
   const [registeredAttributes, setRegisteredAttributes] = useState<ExportAttribute[]>([])
@@ -233,10 +233,16 @@ export function DataExportPage() {
     return vessels.find((v) => v.id === selectedVesselId) || null
   }, [selectedVesselId, vessels])
 
+  // Stable vessel IDs key to avoid re-triggering attribute fetches on real-time telemetry updates
+  const fleetVesselIdsKey = useMemo(() => {
+    return vessels.map((v) => v.id).sort().join(",")
+  }, [vessels.length, vessels.map((v) => v.id).join(",")])
+
   // Fetch actual registered attributes for the selected vessel
   useEffect(() => {
     let isCancelled = false
     async function loadVesselAttributes() {
+      // Only show full loading state if we have no attributes yet to prevent screen blinking
       setLoadingAttributes(true)
       try {
         let rawAttrs: AssetAttribute[] = []
@@ -292,7 +298,7 @@ export function DataExportPage() {
     return () => {
       isCancelled = true
     }
-  }, [selectedVesselId, vessels])
+  }, [selectedVesselId, fleetVesselIdsKey])
 
   // Calculate actual time boundaries based on preset or custom
   const dateRange = useMemo(() => {
@@ -754,47 +760,14 @@ export function DataExportPage() {
 
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                  <FileText className="h-3.5 w-3.5 text-slate-500" />
+                  <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
                   Export Format
                 </label>
-                <div className="grid grid-cols-3 gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setFileFormat("csv")}
-                    className={`flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold transition ${
-                      fileFormat === "csv"
-                        ? "border-2 border-[#db4040] bg-red-50/70 text-[#db4040] shadow-sm"
-                        : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                    }`}
-                  >
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 px-3 text-xs font-bold border-2 border-emerald-600 bg-emerald-50/70 text-emerald-800 shadow-2xs select-none">
                     <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-                    CSV
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFileFormat("excel")}
-                    className={`flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold transition ${
-                      fileFormat === "excel"
-                        ? "border-2 border-[#db4040] bg-red-50/70 text-[#db4040] shadow-sm"
-                        : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                    }`}
-                    title="Excel formatted with UTF-8 BOM"
-                  >
-                    <FileSpreadsheet className="h-4 w-4 text-green-600" />
-                    Excel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFileFormat("json")}
-                    className={`flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold transition ${
-                      fileFormat === "json"
-                        ? "border-2 border-[#db4040] bg-red-50/70 text-[#db4040] shadow-sm"
-                        : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                    }`}
-                  >
-                    <FileJson className="h-4 w-4 text-amber-600" />
-                    JSON
-                  </button>
+                    <span>Microsoft Excel (.csv / UTF-8 BOM)</span>
+                  </div>
                 </div>
               </div>
             </div>
