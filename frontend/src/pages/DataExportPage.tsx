@@ -33,7 +33,7 @@ import { Link } from "react-router"
 import { useFleet } from "@/state/FleetProvider"
 import { api } from "@/services/api"
 import { PageHeader, StatusBadge, buttonPrimary, buttonSecondary, inputClass } from "@/components/common/UI"
-import * as XLSX from "xlsx"
+import ExcelJS from "exceljs"
 import type { AssetAttribute, Vessel } from "@/domain/types"
 
 export interface ExportAttribute {
@@ -146,6 +146,14 @@ function mapAssetAttributeToExport(attr: AssetAttribute): ExportAttribute[] {
   } else if (k === "battery_volts") {
     targetField = "battery_volts"
     formatFn = (v) => (v !== null && v !== undefined ? Number(v).toFixed(2) : "—")
+  }
+
+  if (!formatFn) {
+    formatFn = (v) => {
+      if (v === null || v === undefined) return "—"
+      if (typeof v === "number") return Number(v.toFixed(2)).toString()
+      return String(v)
+    }
   }
 
   return [
@@ -430,7 +438,8 @@ export function DataExportPage() {
           const validNums = group.map((g) => Number(g[attr.field])).filter((n) => !isNaN(n) && n !== null)
           if (validNums.length > 0) {
             const sum = validNums.reduce((a, b) => a + b, 0)
-            avgRow[attr.field] = Number((sum / validNums.length).toFixed(4))
+            const isCoord = attr.field === "latitude" || attr.field === "longitude"
+            avgRow[attr.field] = Number((sum / validNums.length).toFixed(isCoord ? 6 : 2))
           }
         }
       }
@@ -460,41 +469,222 @@ export function DataExportPage() {
         throw new Error("No data records found for the selected vessel and time criteria.")
       }
 
-      const vesselTag = selectedVesselId === "all" ? "Fleet_All" : (currentVessel?.name || "Vessel").replace(/\s+/g, "_")
+      const vesselName = selectedVesselId === "all" ? "All Fleet Vessels" : (currentVessel?.name || "Vessel")
+      const vesselType = currentVessel?.type ? ` (${currentVessel.type})` : ""
+      const vesselTag = selectedVesselId === "all" ? "Fleet_All" : vesselName.replace(/\s+/g, "_")
       const dateTag = new Date().toISOString().slice(0, 10).replace(/-/g, "")
       const fileName = `export_${vesselTag}_${dateTag}_${Date.now().toString().slice(-4)}.xlsx`
 
-      // Format data into structured columns for native Excel
-      const worksheetData = processedData.map((row) => {
-        const item: Record<string, any> = {}
-        for (const attr of activeAttributes) {
-          const colHeader = `${attr.label}${attr.unit ? ` (${attr.unit})` : ""}`
+      // 1. Initialize ExcelJS Workbook
+      const workbook = new ExcelJS.Workbook()
+      workbook.creator = "GEOTEKNO VMS"
+      workbook.lastModifiedBy = "GEOTEKNO VMS"
+      workbook.created = new Date()
+      workbook.modified = new Date()
+
+      const worksheet = workbook.addWorksheet("Telemetry Data", {
+        views: [{ state: "frozen", ySplit: 9, activeCell: "A10", showGridLines: true }],
+      })
+
+      // 2. Fetch and embed Logo
+      try {
+        const logoResp = await fetch("/logo.png")
+        if (logoResp.ok) {
+          const logoArrayBuffer = await logoResp.arrayBuffer()
+          const logoImageId = workbook.addImage({
+            buffer: logoArrayBuffer,
+            extension: "png",
+          })
+          worksheet.addImage(logoImageId, {
+            tl: { col: 0.15, row: 0.2 },
+            ext: { width: 175, height: 50 },
+            editAs: "oneCell",
+          })
+        }
+      } catch (e) {
+        console.warn("Could not load logo for Excel report:", e)
+      }
+
+      // Configure report title rows
+      worksheet.getRow(1).height = 18
+      worksheet.getRow(2).height = 24
+      worksheet.getRow(3).height = 18
+      worksheet.getRow(4).height = 12
+
+      worksheet.getCell("C2").value = "GEOTEKNO VMS — MARINE TELEMETRY REPORT"
+      worksheet.getCell("C2").font = { name: "Segoe UI", size: 14, bold: true, color: { argb: "FF0F172A" } }
+      worksheet.getCell("C2").alignment = { vertical: "middle" }
+
+      worksheet.getCell("C3").value = "Vessel Monitoring & Telemetry Data Acquisition Log"
+      worksheet.getCell("C3").font = { name: "Segoe UI", size: 9.5, italic: true, color: { argb: "FF64748B" } }
+      worksheet.getCell("C3").alignment = { vertical: "middle" }
+
+      // 3. Metadata Summary Block (Rows 5-7)
+      const exportTimestampStr = new Date().toLocaleString("id-ID", {
+        dateStyle: "medium",
+        timeStyle: "medium",
+      })
+      const samplingStr = samplingInterval === "raw" ? "Raw (Full Frequency)" : samplingInterval.toUpperCase()
+
+      const metaRowsData = [
+        { label1: "Vessel Name:", val1: `${vesselName}${vesselType}`, label2: "Exported At:", val2: exportTimestampStr },
+        { label1: "Time Scope:", val1: `${dateRange.fromLabel}  s/d  ${dateRange.toLabel}`, label2: "Sampling Interval:", val2: samplingStr },
+        { label1: "Total Records:", val1: `${processedData.length.toLocaleString()} rows`, label2: "Active Attributes:", val2: `${activeAttributes.length} signals` },
+      ]
+
+      const metaFill: ExcelJS.Fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFF8FAFC" },
+      }
+      const metaBorderSide: ExcelJS.Border = { style: "thin", color: { argb: "FFE2E8F0" } }
+
+      metaRowsData.forEach((item, idx) => {
+        const rowNum = 5 + idx
+        const r = worksheet.getRow(rowNum)
+        r.height = 20
+
+        const cA = r.getCell(1) // Col A
+        cA.value = item.label1
+        cA.font = { name: "Segoe UI", size: 9, bold: true, color: { argb: "FF475569" } }
+        cA.alignment = { vertical: "middle", horizontal: "left" }
+        cA.fill = metaFill
+        cA.border = { top: metaBorderSide, bottom: metaBorderSide, left: metaBorderSide }
+
+        const cB = r.getCell(2) // Col B
+        cB.value = item.val1
+        cB.font = { name: "Segoe UI", size: 9.5, bold: idx === 0, color: { argb: "FF0F172A" } }
+        cB.alignment = { vertical: "middle", horizontal: "left" }
+        cB.fill = metaFill
+        cB.border = { top: metaBorderSide, bottom: metaBorderSide }
+
+        const cC = r.getCell(3) // Col C (separator / spacing)
+        cC.fill = metaFill
+        cC.border = { top: metaBorderSide, bottom: metaBorderSide }
+
+        const cD = r.getCell(4) // Col D
+        cD.value = item.label2
+        cD.font = { name: "Segoe UI", size: 9, bold: true, color: { argb: "FF475569" } }
+        cD.alignment = { vertical: "middle", horizontal: "left" }
+        cD.fill = metaFill
+        cD.border = { top: metaBorderSide, bottom: metaBorderSide }
+
+        const cE = r.getCell(5) // Col E
+        cE.value = item.val2
+        cE.font = { name: "Segoe UI", size: 9.5, color: { argb: "FF0F172A" } }
+        cE.alignment = { vertical: "middle", horizontal: "left" }
+        cE.fill = metaFill
+        cE.border = { top: metaBorderSide, bottom: metaBorderSide, right: metaBorderSide }
+      })
+
+      // Row 8 is spacing
+      worksheet.getRow(8).height = 14
+
+      // 4. Data Table Headers (Row 9)
+      const headerRow = worksheet.getRow(9)
+      headerRow.height = 26
+      activeAttributes.forEach((attr, idx) => {
+        const cell = headerRow.getCell(idx + 1)
+        cell.value = `${attr.label}${attr.unit ? ` (${attr.unit})` : ""}`
+        cell.font = { name: "Segoe UI", size: 9.5, bold: true, color: { argb: "FFFFFFFF" } }
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FF1E293B" }, // Navy slate-800
+        }
+        cell.alignment = { vertical: "middle", horizontal: "center", wrapText: false }
+        cell.border = {
+          top: { style: "thin", color: { argb: "FF334155" } },
+          bottom: { style: "medium", color: { argb: "FF0F172A" } },
+          left: { style: "thin", color: { argb: "FF334155" } },
+          right: { style: "thin", color: { argb: "FF334155" } },
+        }
+      })
+
+      // 5. Data Rows (Rows 10+)
+      const zebraFill: ExcelJS.Fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFF8FAFC" },
+      }
+      const cellBorder: Partial<ExcelJS.Borders> = {
+        top: { style: "thin", color: { argb: "FFE2E8F0" } },
+        bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
+        left: { style: "thin", color: { argb: "FFE2E8F0" } },
+        right: { style: "thin", color: { argb: "FFE2E8F0" } },
+      }
+
+      processedData.forEach((row, rowIdx) => {
+        const rowNumber = 10 + rowIdx
+        const dataRow = worksheet.getRow(rowNumber)
+        dataRow.height = 20
+        const isZebra = rowIdx % 2 === 1
+
+        activeAttributes.forEach((attr, colIdx) => {
+          const cell = dataRow.getCell(colIdx + 1)
           const raw = row[attr.field]
-          if (raw === null || raw === undefined) {
-            item[colHeader] = ""
-          } else if (typeof raw === "number") {
-            item[colHeader] = raw
+
+          cell.border = cellBorder
+          if (isZebra) {
+            cell.fill = zebraFill
+          }
+
+          if (raw === null || raw === undefined || raw === "") {
+            cell.value = "—"
+            cell.font = { name: "Segoe UI", size: 9, color: { argb: "FF94A3B8" } }
+            cell.alignment = { vertical: "middle", horizontal: "center" }
+          } else if (typeof raw === "number" || (!isNaN(Number(raw)) && !attr.field.startsWith("timestamp"))) {
+            const num = Number(raw)
+            const isCoord = attr.field === "latitude" || attr.field === "longitude"
+
+            if (isCoord) {
+              cell.value = Number(num.toFixed(6))
+              cell.numFmt = "0.000000"
+            } else {
+              // Strictly limit standard telemetry to at most 2 decimal places!
+              cell.value = Number(num.toFixed(2))
+              cell.numFmt = "0.00"
+            }
+            cell.font = { name: "Segoe UI", size: 9, color: { argb: "FF0F172A" } }
+            cell.alignment = { vertical: "middle", horizontal: "right" }
           } else {
-            item[colHeader] = String(raw)
+            // String / Timestamp
+            cell.value = String(raw)
+            const isTs = attr.field.startsWith("timestamp")
+            cell.font = { name: "Segoe UI", size: 9, color: { argb: "FF0F172A" } }
+            cell.alignment = { vertical: "middle", horizontal: isTs ? "center" : "left" }
+          }
+        })
+      })
+
+      // 6. Calculate & Apply Auto-fit Column Widths
+      activeAttributes.forEach((attr, idx) => {
+        const col = worksheet.getColumn(idx + 1)
+        const headerTitle = `${attr.label}${attr.unit ? ` (${attr.unit})` : ""}`
+        let maxLen = headerTitle.length
+
+        // Sample up to 100 rows to determine content width
+        const sampleCount = Math.min(processedData.length, 100)
+        for (let i = 0; i < sampleCount; i++) {
+          const val = processedData[i][attr.field]
+          if (val !== null && val !== undefined) {
+            const strVal = String(val)
+            if (strVal.length > maxLen) maxLen = strVal.length
           }
         }
-        return item
+
+        let finalWidth = Math.max(maxLen + 4, 15)
+        // Ensure Col A and B have enough room for header card labels as well
+        if (idx === 0) finalWidth = Math.max(finalWidth, 24)
+        if (idx === 1) finalWidth = Math.max(finalWidth, 24)
+        if (attr.field.startsWith("timestamp")) finalWidth = Math.max(finalWidth, 22)
+
+        col.width = finalWidth
       })
 
-      const worksheet = XLSX.utils.json_to_sheet(worksheetData)
-
-      // Auto-fit column widths so text and numbers are properly visible
-      const colWidths = activeAttributes.map((attr) => {
-        const headerLen = `${attr.label}${attr.unit ? ` (${attr.unit})` : ""}`.length
-        return { wch: Math.max(headerLen + 4, 16) }
-      })
-      worksheet["!cols"] = colWidths
-
-      const workbook = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Telemetry Data")
-
-      const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" })
-      const blob = new Blob([excelBuffer], {
+      // 7. Write buffer and trigger browser download
+      const buffer = await workbook.xlsx.writeBuffer()
+      const blob = new Blob([buffer], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       })
 
