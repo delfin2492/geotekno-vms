@@ -951,6 +951,105 @@ interface ChartPoint {
   value: number
 }
 
+type ChartTimeRange = "live" | "hour" | "day" | "weakly" | "month" | "years"
+
+interface TimeRangeOption {
+  key: ChartTimeRange
+  label: string
+  periodLabel: string
+  durationMs: number
+}
+
+const CHART_TIME_RANGES: TimeRangeOption[] = [
+  { key: "live", label: "Live", periodLabel: "Realtime Buffer", durationMs: 60 * 1000 },
+  { key: "hour", label: "Hour", periodLabel: "Past 1h", durationMs: 60 * 60 * 1000 },
+  { key: "day", label: "Day", periodLabel: "Past 24h", durationMs: 24 * 60 * 60 * 1000 },
+  { key: "weakly", label: "Weakly", periodLabel: "Past 7d", durationMs: 7 * 24 * 60 * 60 * 1000 },
+  { key: "month", label: "Month", periodLabel: "Past 30d", durationMs: 30 * 24 * 60 * 60 * 1000 },
+  { key: "years", label: "Years", periodLabel: "Past 1y", durationMs: 365 * 24 * 60 * 60 * 1000 },
+]
+
+function extractMetricValue(rec: any, key: string, fallbackVal: number): number {
+  if (!rec) return fallbackVal
+  let val: any = undefined
+  switch (key) {
+    case "rpm":
+      val = rec.engine_rpm ?? rec.rpm ?? rec.engineRpm
+      break
+    case "fuel":
+      val = rec.fuel_level ?? rec.fuel ?? rec.fuelLevel
+      break
+    case "engineLoad":
+      val = rec.engine_load ?? rec.engineLoad
+      break
+    case "sog":
+      val = rec.sog_knots ?? rec.sog ?? rec.speed
+      break
+    case "cog":
+      val = rec.cog_deg ?? rec.cog
+      break
+    case "heading":
+      val = rec.heading_deg ?? rec.heading
+      break
+    case "depth":
+      val = rec.depth_m ?? rec.depth
+      break
+    case "windSpeed":
+      val = rec.wind_speed_kn ?? rec.windSpeed
+      break
+    case "pitch":
+      val = rec.pitch_deg ?? rec.pitch
+      break
+    case "roll":
+      val = rec.roll_deg ?? rec.roll
+      break
+    case "rot":
+      val = rec.rot_deg_s ?? rec.rot
+      break
+    default:
+      val = rec[key] ?? rec[`${key}_deg`] ?? rec[`${key}_m`] ?? rec[`${key}_knots`]
+  }
+  const num = typeof val === "number" ? val : typeof val === "string" ? parseFloat(val) : NaN
+  return isNaN(num) ? fallbackVal : num
+}
+
+function formatXAxisTime(timestamp: number, range: ChartTimeRange): string {
+  const d = new Date(timestamp)
+  if (isNaN(d.getTime())) return ""
+  switch (range) {
+    case "live":
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
+    case "hour":
+    case "day":
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
+    case "weakly":
+    case "month":
+      return d.toLocaleDateString([], { day: "numeric", month: "short" })
+    case "years":
+      return d.toLocaleDateString([], { month: "short", year: "2-digit" })
+    default:
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
+  }
+}
+
+function formatHoverTime(timestamp: number, range: ChartTimeRange): string {
+  const d = new Date(timestamp)
+  if (isNaN(d.getTime())) return ""
+  if (range === "live") {
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
+  }
+  if (range === "hour") {
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
+  }
+  if (range === "day") {
+    return `${d.toLocaleDateString([], { day: "numeric", month: "short" })} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}`
+  }
+  if (range === "weakly" || range === "month") {
+    return `${d.toLocaleDateString([], { day: "numeric", month: "short" })} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}`
+  }
+  return d.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })
+}
+
 function TrendChart({
   vessel,
   attributeKey,
@@ -989,6 +1088,11 @@ function TrendChart({
       : typeof rawVal === "string" && !isNaN(Number(rawVal))
       ? Number(rawVal)
       : 0
+
+  // Time Range Filter State: Live, Hour, Day, Weakly, Month, Years
+  const [timeRange, setTimeRange] = useState<ChartTimeRange>("live")
+  const [historicalData, setHistoricalData] = useState<ChartPoint[]>([])
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
 
   // Unique ID for gradients to prevent collisions when multiple charts are on canvas
   const chartId = useMemo(
@@ -1051,11 +1155,84 @@ function TrendChart({
     }
   }, [vessel.updatedAt, currentVal, decimals])
 
+  // Historical Telemetry Query for non-live filters (Hour, Day, Weakly, Month, Years)
+  useEffect(() => {
+    if (timeRange === "live") return
+
+    let isMounted = true
+    setIsLoadingHistory(true)
+
+    const rangeDef = CHART_TIME_RANGES.find((r) => r.key === timeRange)
+    const durationMs = rangeDef?.durationMs || 3600000
+    const now = Date.now()
+    const fromIso = new Date(now - durationMs).toISOString()
+
+    api
+      .getTelemetryHistory({
+        vesselId: vessel?.id,
+        from: fromIso,
+        limit: 120,
+      })
+      .then((res) => {
+        if (!isMounted) return
+        const rawRecords = res?.records || []
+        if (rawRecords.length > 0) {
+          // Sort chronologically ascending
+          const sorted = [...rawRecords].sort(
+            (a, b) =>
+              new Date(a.timestamp_utc || a.recorded_at || 0).getTime() -
+              new Date(b.timestamp_utc || b.recorded_at || 0).getTime(),
+          )
+          const pts: ChartPoint[] = sorted.map((r) => ({
+            timestamp: new Date(r.timestamp_utc || r.recorded_at || Date.now()).getTime(),
+            value: Number(extractMetricValue(r, effectiveKey, currentVal).toFixed(decimals + 1)),
+          }))
+          setHistoricalData(pts)
+        } else {
+          // Baseline points spanning the full requested duration
+          const count = 24
+          const step = durationMs / (count - 1)
+          const pts: ChartPoint[] = []
+          for (let i = 0; i < count; i++) {
+            pts.push({
+              timestamp: now - durationMs + i * step,
+              value: Number(currentVal.toFixed(decimals + 1)),
+            })
+          }
+          setHistoricalData(pts)
+        }
+      })
+      .catch((err) => {
+        console.warn("Failed to fetch historical telemetry for chart:", err)
+        if (!isMounted) return
+        const count = 24
+        const step = durationMs / (count - 1)
+        const pts: ChartPoint[] = []
+        for (let i = 0; i < count; i++) {
+          pts.push({
+            timestamp: now - durationMs + i * step,
+            value: Number(currentVal.toFixed(decimals + 1)),
+          })
+        }
+        setHistoricalData(pts)
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingHistory(false)
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [timeRange, vessel?.id, effectiveKey, currentVal, decimals])
+
+  // Active data selection: Live buffer or Historical series
+  const activeData = timeRange === "live" ? history : historicalData
+
   // Interactive Hover state
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
 
   // Calculations for stats and graph scaling
-  const values = history.map((p) => p.value)
+  const values = activeData.map((p) => p.value)
   const minVal = values.length ? Math.min(...values) : 0
   const maxVal = values.length ? Math.max(...values) : 0
   const avgVal = values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0
@@ -1085,10 +1262,11 @@ function TrendChart({
   const unitSizeClass = isXLarge ? "text-sm" : isSmall ? "text-[10px]" : "text-xs"
   const statsSizeClass = isLarge ? "text-xs" : isSmall ? "text-[9px]" : "text-[10px]"
   const titleSizeClass = isLarge ? "text-xs" : isSmall ? "text-[9px]" : "text-[10px]"
+  const filterBtnSizeClass = isSmall ? "text-[8px] px-1.5 py-0.5" : "text-[10px] px-2 py-0.5"
 
   // SVG Geometry - dynamic sizing to match container
   const svgWidth = Math.max(280, width - 24)
-  const svgHeight = Math.max(76, Math.round(height * (isSmall ? 0.48 : 0.58)))
+  const svgHeight = Math.max(70, Math.round(height * (isSmall ? 0.44 : 0.52)))
   const padLeft = 40
   const padRight = 14
   const padTop = 10
@@ -1105,39 +1283,31 @@ function TrendChart({
   const scaleRange = scaleMax - scaleMin || 1
 
   // Map data points to SVG coordinates
-  const svgPoints = history.map((pt, i) => {
-    const x = padLeft + (i / Math.max(1, history.length - 1)) * drawW
+  const svgPoints = activeData.map((pt, i) => {
+    const x = padLeft + (i / Math.max(1, activeData.length - 1)) * drawW
     const normalizedY = (pt.value - scaleMin) / scaleRange
     const y = padTop + drawH - normalizedY * drawH
     return { x, y, pt }
   })
 
-  // Horizontal Time Ticks calculation across history points
+  // Horizontal Time Ticks calculation across active data points
   const timeTicks = useMemo(() => {
-    if (history.length < 2) return []
+    if (activeData.length < 2) return []
     const count = width < 340 ? 2 : width < 500 ? 3 : 4
-    const step = (history.length - 1) / (count - 1)
+    const step = (activeData.length - 1) / (count - 1)
     const ticks: { x: number; label: string; textAnchor: "start" | "middle" | "end" }[] = []
 
     for (let i = 0; i < count; i++) {
-      const idx = Math.min(history.length - 1, Math.round(i * step))
-      const pt = history[idx]
-      const x = padLeft + (idx / Math.max(1, history.length - 1)) * drawW
-      const d = new Date(pt.timestamp)
-      const label = isNaN(d.getTime())
-        ? ""
-        : d.toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-            hour12: false,
-          })
+      const idx = Math.min(activeData.length - 1, Math.round(i * step))
+      const pt = activeData[idx]
+      const x = padLeft + (idx / Math.max(1, activeData.length - 1)) * drawW
+      const label = formatXAxisTime(pt.timestamp, timeRange)
       const textAnchor: "start" | "middle" | "end" =
         i === 0 ? "start" : i === count - 1 ? "end" : "middle"
       ticks.push({ x, label, textAnchor })
     }
     return ticks
-  }, [history, width, padLeft, drawW])
+  }, [activeData, width, padLeft, drawW, timeRange])
 
   // Generate smooth SVG curve
   function buildSmoothCurve(pts: { x: number; y: number }[]) {
@@ -1171,11 +1341,12 @@ function TrendChart({
     hoverIndex !== null && svgPoints[hoverIndex] ? svgPoints[hoverIndex] : null
 
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
+    if (activeData.length === 0) return
     const rect = e.currentTarget.getBoundingClientRect()
     const mouseX = ((e.clientX - rect.left) / rect.width) * svgWidth
     const clampedX = Math.max(padLeft, Math.min(padLeft + drawW, mouseX))
     const ratio = (clampedX - padLeft) / drawW
-    const idx = Math.round(ratio * (history.length - 1))
+    const idx = Math.round(ratio * (activeData.length - 1))
     setHoverIndex(idx)
   }
 
@@ -1185,7 +1356,7 @@ function TrendChart({
 
   return (
     <div className="h-full flex flex-col justify-between select-none py-0.5">
-      {/* 1. Header Row: Value & Live Tag */}
+      {/* 1. Header Row: Value, Trend Tag & Live/Period Status */}
       <div className="flex items-start justify-between gap-2">
         <div>
           <div className={`flex items-center gap-1.5 font-bold text-slate-500 uppercase tracking-wide ${titleSizeClass}`}>
@@ -1223,26 +1394,67 @@ function TrendChart({
               {pctChange.toFixed(1)}%
             </span>
 
-            {isLive ? (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 border border-red-200/80 text-[9px] font-extrabold text-[#db4040]">
-                <span className="h-1.5 w-1.5 rounded-full bg-[#db4040] animate-pulse" />
-                LIVE
-              </span>
+            {timeRange === "live" ? (
+              isLive ? (
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 border border-red-200/80 text-[9px] font-extrabold text-[#db4040]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#db4040] animate-pulse" />
+                  LIVE
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[9px] font-bold text-slate-500">
+                  <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                  STATIC
+                </span>
+              )
             ) : (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[9px] font-bold text-slate-500">
-                <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-                STATIC
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[9px] font-bold text-amber-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                {CHART_TIME_RANGES.find((r) => r.key === timeRange)?.periodLabel.toUpperCase()}
               </span>
             )}
           </div>
 
           <div className="text-[9px] font-semibold text-slate-400">
-            {isLive ? (config?.timeSpan ? `Window ${config.timeSpan}` : "Realtime Buffer") : "No Incoming Data"}
+            {timeRange === "live"
+              ? isLive
+                ? config?.timeSpan
+                  ? `Window ${config.timeSpan}`
+                  : "Realtime Buffer"
+                : "No Incoming Data"
+              : isLoadingHistory
+              ? "Fetching telemetry..."
+              : `${activeData.length} data points`}
           </div>
         </div>
       </div>
 
-      {/* 2. Mini Stats Sub-row */}
+      {/* 2. Time Filter Row: Live, Hour, Day, Weakly, Month, Years */}
+      <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5 mt-1 mb-0.5">
+        {CHART_TIME_RANGES.map((r) => {
+          const isSelected = timeRange === r.key
+          return (
+            <button
+              key={r.key}
+              type="button"
+              onClick={() => setTimeRange(r.key)}
+              className={`rounded font-bold transition-all whitespace-nowrap cursor-pointer ${filterBtnSizeClass} ${
+                isSelected
+                  ? "bg-[#db4040] text-white shadow-sm ring-1 ring-[#db4040]"
+                  : "bg-slate-100/90 hover:bg-slate-200 text-slate-600 hover:text-slate-900 border border-slate-200/60"
+              }`}
+            >
+              {r.label}
+            </button>
+          )
+        })}
+        {isLoadingHistory && (
+          <span className="text-[9px] text-[#db4040] font-semibold animate-pulse ml-1">
+            Loading...
+          </span>
+        )}
+      </div>
+
+      {/* 3. Mini Stats Sub-row */}
       <div className={`flex items-center gap-3 font-medium text-slate-400 mt-0.5 ${statsSizeClass}`}>
         <span>
           Min: <strong className="font-bold text-slate-600">{minVal.toFixed(decimals)}</strong>
@@ -1255,13 +1467,13 @@ function TrendChart({
         </span>
         {activeHoverPt && (
           <span className="ml-auto font-bold text-[#db4040] bg-red-50 px-1.5 py-0.5 rounded border border-red-100 text-[9px] tabular-nums">
-            {new Date(activeHoverPt.pt.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })} • {activeHoverPt.pt.value.toFixed(decimals)} {unit}
+            {formatHoverTime(activeHoverPt.pt.timestamp, timeRange)} • {activeHoverPt.pt.value.toFixed(decimals)} {unit}
           </span>
         )}
       </div>
 
-      {/* 3. Realtime SVG Line Chart */}
-      <div className="relative flex-1 w-full min-h-[68px] mt-1">
+      {/* 4. Realtime / Historical SVG Line Chart */}
+      <div className="relative flex-1 w-full min-h-[64px] mt-1">
         <svg
           viewBox={`0 0 ${svgWidth} ${svgHeight}`}
           preserveAspectRatio="none"
@@ -1357,7 +1569,9 @@ function TrendChart({
           {/* Pulse dot on latest point (pulses only when live) */}
           {lastPt && (
             <g transform={`translate(${lastPt.x}, ${lastPt.y})`}>
-              {isLive && <circle r="7" fill="#db4040" opacity="0.25" className="animate-ping" />}
+              {isLive && timeRange === "live" && (
+                <circle r="7" fill="#db4040" opacity="0.25" className="animate-ping" />
+              )}
               <circle r="3.5" fill="#db4040" stroke="#ffffff" strokeWidth="2" />
             </g>
           )}
