@@ -361,46 +361,10 @@ export function DataExportPage() {
     }
   }
 
-  // Reload preview when vessel or time preset changes
+  // Reload preview when vessel or time preset/custom changes
   useEffect(() => {
     loadPreview()
-  }, [selectedVesselId, timePreset])
-
-  // Attribute toggle handlers
-  const toggleAttribute = (id: string) => {
-    setSelectedAttributeIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) {
-        if (next.size > 1) next.delete(id)
-      } else {
-        next.add(id)
-      }
-      return next
-    })
-  }
-
-  const selectAllAttributes = () => {
-    setSelectedAttributeIds(new Set(registeredAttributes.map((a) => a.id)))
-  }
-
-  const clearAllAttributes = () => {
-    // Keep timestamp essentials
-    setSelectedAttributeIds(new Set(BASE_TIMESTAMP_ATTRIBUTES.map((a) => a.id)))
-  }
-
-  // Filtered attributes list based on user checkbox selection
-  const activeAttributes = useMemo(() => {
-    return registeredAttributes.filter((a) => selectedAttributeIds.has(a.id))
-  }, [registeredAttributes, selectedAttributeIds])
-
-  // Filtered preview rows by search input
-  const filteredPreviewRows = useMemo(() => {
-    if (!searchFilter.trim()) return previewRecords
-    const q = searchFilter.toLowerCase()
-    return previewRecords.filter((row) => {
-      return Object.values(row).some((val) => String(val).toLowerCase().includes(q))
-    })
-  }, [previewRecords, searchFilter])
+  }, [selectedVesselId, timePreset, customStart, customEnd])
 
   // Downsample or aggregate records based on selected interval
   const processRecordsForExport = (records: any[]): any[] => {
@@ -448,6 +412,47 @@ export function DataExportPage() {
 
     return aggregated.sort((a, b) => new Date(b.timestamp_utc).getTime() - new Date(a.timestamp_utc).getTime())
   }
+
+  // Attribute toggle handlers
+  const toggleAttribute = (id: string) => {
+    setSelectedAttributeIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        if (next.size > 1) next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
+
+  const selectAllAttributes = () => {
+    setSelectedAttributeIds(new Set(registeredAttributes.map((a) => a.id)))
+  }
+
+  const clearAllAttributes = () => {
+    // Keep timestamp essentials
+    setSelectedAttributeIds(new Set(BASE_TIMESTAMP_ATTRIBUTES.map((a) => a.id)))
+  }
+
+  // Filtered attributes list based on user checkbox selection
+  const activeAttributes = useMemo(() => {
+    return registeredAttributes.filter((a) => selectedAttributeIds.has(a.id))
+  }, [registeredAttributes, selectedAttributeIds])
+
+  // Live preview records processed according to sampling interval
+  const processedPreviewRecords = useMemo(() => {
+    return processRecordsForExport(previewRecords)
+  }, [previewRecords, samplingInterval, registeredAttributes])
+
+  // Filtered preview rows by search input
+  const filteredPreviewRows = useMemo(() => {
+    if (!searchFilter.trim()) return processedPreviewRecords
+    const q = searchFilter.toLowerCase()
+    return processedPreviewRecords.filter((row) => {
+      return Object.values(row).some((val) => String(val).toLowerCase().includes(q))
+    })
+  }, [processedPreviewRecords, searchFilter])
 
   // Trigger export download
   const handleExport = async () => {
@@ -784,11 +789,10 @@ export function DataExportPage() {
       {/* Alert Notification Banner */}
       {notification && (
         <div
-          className={`flex items-center justify-between gap-3 rounded-2xl p-4 text-xs font-medium border shadow-sm transition ${
-            notification.type === "success"
+          className={`flex items-center justify-between gap-3 rounded-2xl p-4 text-xs font-medium border shadow-sm transition ${notification.type === "success"
               ? "bg-emerald-50 text-emerald-800 border-emerald-200"
               : "bg-red-50 text-red-800 border-red-200"
-          }`}
+            }`}
         >
           <div className="flex items-center gap-2.5">
             {notification.type === "success" ? (
@@ -890,11 +894,10 @@ export function DataExportPage() {
                     key={preset.key}
                     type="button"
                     onClick={() => setTimePreset(preset.key as TimeRangePreset)}
-                    className={`rounded-xl py-2 text-xs font-bold transition active:scale-[0.98] ${
-                      timePreset === preset.key
+                    className={`rounded-xl py-2 text-xs font-bold transition active:scale-[0.98] ${timePreset === preset.key
                         ? "bg-[#db4040] text-white shadow-md shadow-red-500/25"
                         : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                    }`}
+                      }`}
                   >
                     {preset.label}
                   </button>
@@ -1062,11 +1065,10 @@ export function DataExportPage() {
                               key={attr.id}
                               type="button"
                               onClick={() => toggleAttribute(attr.id)}
-                              className={`flex items-center justify-between rounded-xl p-2.5 text-left transition border ${
-                                isChecked
+                              className={`flex items-center justify-between rounded-xl p-2.5 text-left transition border ${isChecked
                                   ? "border-red-200 bg-red-50/50 text-slate-900 font-medium shadow-xs"
                                   : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300"
-                              }`}
+                                }`}
                             >
                               <div className="flex items-center gap-2 truncate pr-1">
                                 {isChecked ? (
@@ -1103,35 +1105,33 @@ export function DataExportPage() {
         {/* ======================================================== */}
         {/* RIGHT COLUMN: PREVIEW TABLE & EXPORT HISTORY (Col Span 7) */}
         {/* ======================================================== */}
-        <div className="lg:col-span-7 space-y-4">
-          <div className="rounded-2xl border border-slate-200/90 bg-white shadow-sm overflow-hidden flex flex-col h-full min-h-[580px]">
+        <div className="lg:col-span-7 flex flex-col min-h-0">
+          <div className="rounded-2xl border border-slate-200/90 bg-white shadow-sm overflow-hidden flex flex-col h-full min-h-0">
             {/* Tabs Header */}
             <div className="flex items-center justify-between border-b border-slate-200 px-6 pt-3.5">
               <div className="flex items-center gap-8">
                 <button
                   type="button"
                   onClick={() => setActiveTab("preview")}
-                  className={`flex items-center gap-2 pb-3.5 text-xs font-bold border-b-2 transition ${
-                    activeTab === "preview"
+                  className={`flex items-center gap-2 pb-3.5 text-xs font-bold border-b-2 transition ${activeTab === "preview"
                       ? "border-[#db4040] text-[#db4040]"
                       : "border-transparent text-slate-500 hover:text-slate-800"
-                  }`}
+                    }`}
                 >
                   <Eye className="h-4 w-4" />
                   <span>Live Data Preview</span>
                   <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold text-slate-700 border border-slate-200">
-                    {previewRecords.length}
+                    {processedPreviewRecords.length}
                   </span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setActiveTab("history")}
-                  className={`flex items-center gap-2 pb-3.5 text-xs font-bold border-b-2 transition ${
-                    activeTab === "history"
+                  className={`flex items-center gap-2 pb-3.5 text-xs font-bold border-b-2 transition ${activeTab === "history"
                       ? "border-[#db4040] text-[#db4040]"
                       : "border-transparent text-slate-500 hover:text-slate-800"
-                  }`}
+                    }`}
                 >
                   <History className="h-4 w-4" />
                   <span>Export History</span>
@@ -1159,9 +1159,9 @@ export function DataExportPage() {
 
             {/* Tab 1 Content: Live Preview Table */}
             {activeTab === "preview" && (
-              <div className="flex-1 flex flex-col p-5">
+              <div className="flex-1 flex flex-col p-5 min-h-0">
                 {/* Meta Summary Status Bar */}
-                <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl bg-slate-50 border border-slate-200/80 p-3 mb-3.5 text-xs text-slate-600">
+                <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl bg-slate-50 border border-slate-200/80 p-3 mb-3.5 text-xs text-slate-600 shrink-0">
                   <div className="flex items-center gap-2">
                     <Database className="h-4 w-4 text-[#db4040]" />
                     <span>
@@ -1179,8 +1179,8 @@ export function DataExportPage() {
                   </div>
                 </div>
 
-                {/* Table Viewport */}
-                <div className="flex-1 relative overflow-auto rounded-xl border border-slate-200 bg-white">
+                {/* Table Viewport (Aligned height with Telemetry Attributes card) */}
+                <div className="flex-1 relative overflow-auto rounded-xl border border-slate-200 bg-white min-h-0 max-h-[580px] xl:max-h-[640px]">
                   {loadingPreview ? (
                     <div className="flex h-64 flex-col items-center justify-center gap-3 text-slate-500">
                       <RefreshCw className="h-7 w-7 animate-spin text-[#db4040]" />
@@ -1201,37 +1201,59 @@ export function DataExportPage() {
                     <table className="w-full text-left text-xs text-slate-700">
                       <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-xs">
                         <tr>
-                          <th className="py-3 px-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                          <th className="py-3 px-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-center">
                             #
                           </th>
-                          {activeAttributes.map((attr) => (
-                            <th
-                              key={attr.id}
-                              className="py-3 px-3.5 text-[10px] font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap"
-                            >
-                              <div className="flex items-center gap-1">
-                                <span>{attr.label}</span>
-                                {attr.unit && (
-                                  <span className="text-slate-400 font-mono font-normal">({attr.unit})</span>
-                                )}
-                              </div>
-                            </th>
-                          ))}
+                          {activeAttributes.map((attr) => {
+                            const isCoord = attr.field === "latitude" || attr.field === "longitude"
+                            const isTs = attr.field.startsWith("timestamp")
+                            return (
+                              <th
+                                key={attr.id}
+                                className={`py-3 px-3.5 text-[10px] font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap ${
+                                  isTs ? "text-center" : !isCoord && attr.unit ? "text-right" : "text-left"
+                                }`}
+                              >
+                                <div className={`flex items-center gap-1 ${isTs ? "justify-center" : !isCoord && attr.unit ? "justify-end" : "justify-start"}`}>
+                                  <span>{attr.label}</span>
+                                  {attr.unit && (
+                                    <span className="text-slate-400 font-mono font-normal">({attr.unit})</span>
+                                  )}
+                                </div>
+                              </th>
+                            )
+                          })}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {filteredPreviewRows.slice(0, 50).map((row, idx) => (
-                          <tr key={row.id || idx} className="hover:bg-slate-50/80 transition">
-                            <td className="py-2.5 px-3.5 text-[11px] font-mono text-slate-400">
+                          <tr key={row.id || idx} className="hover:bg-slate-50/80 transition even:bg-slate-50/30">
+                            <td className="py-2.5 px-3.5 text-[11px] font-mono text-slate-400 text-center">
                               {idx + 1}
                             </td>
                             {activeAttributes.map((attr) => {
                               const rawVal = row[attr.field]
-                              const formatted = attr.format ? attr.format(rawVal) : (rawVal !== null && rawVal !== undefined ? String(rawVal) : "—")
+                              const isCoord = attr.field === "latitude" || attr.field === "longitude"
+                              const isTs = attr.field.startsWith("timestamp")
+                              let formatted = "—"
+
+                              if (rawVal !== null && rawVal !== undefined && rawVal !== "") {
+                                if (attr.format) {
+                                  formatted = attr.format(rawVal)
+                                } else if (typeof rawVal === "number" || (!isNaN(Number(rawVal)) && !isTs)) {
+                                  const num = Number(rawVal)
+                                  formatted = Number(num.toFixed(isCoord ? 6 : 2)).toString()
+                                } else {
+                                  formatted = String(rawVal)
+                                }
+                              }
+
                               return (
                                 <td
                                   key={attr.id}
-                                  className="py-2.5 px-3.5 whitespace-nowrap font-mono text-xs text-slate-900"
+                                  className={`py-2.5 px-3.5 whitespace-nowrap font-mono text-xs text-slate-900 ${
+                                    isTs ? "text-center text-slate-600" : isCoord || (!isTs && !isNaN(Number(rawVal))) ? "text-right font-medium" : "text-left"
+                                  }`}
                                 >
                                   {formatted}
                                 </td>
@@ -1245,9 +1267,9 @@ export function DataExportPage() {
                 </div>
 
                 {/* Table Footer info */}
-                <div className="flex items-center justify-between pt-3 text-xs text-slate-500">
+                <div className="flex items-center justify-between pt-3 text-xs text-slate-500 shrink-0">
                   <span>
-                    Previewing {Math.min(filteredPreviewRows.length, 50)} of {previewRecords.length} records
+                    Previewing {Math.min(filteredPreviewRows.length, 50)} of {processedPreviewRecords.length} records
                   </span>
                   <span>Full export will compile all samples in time period</span>
                 </div>
