@@ -1620,17 +1620,10 @@ function BarChartWidget({
   const rawDepth = vessel.depth !== undefined && vessel.depth !== null ? vessel.depth : 0
   const unit = config?.unit || "m"
 
-  // Scale max selection (respects user configuration or auto-ranges appropriately)
+  // Scale max selection: Flexible based on incoming payload (+10m headroom, rounded cleanly for 4 scale ticks)
   const configuredMax = typeof config?.max === "number" && config.max > 0 ? config.max : null
-  const maxDepth =
-    configuredMax ??
-    (rawDepth <= 10
-      ? 15
-      : rawDepth <= 25
-      ? 30
-      : rawDepth <= 50
-      ? 60
-      : Math.ceil((rawDepth * 1.25) / 10) * 10)
+  const dynamicMax = Math.max(10, Math.ceil((rawDepth + 10) / 4) * 4)
+  const maxDepth = configuredMax ?? dynamicMax
 
   const minDepth = typeof config?.min === "number" ? config.min : 0
   const range = Math.max(5, maxDepth - minDepth)
