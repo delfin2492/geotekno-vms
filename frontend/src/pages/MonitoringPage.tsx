@@ -3757,6 +3757,19 @@ export function MonitoringPage() {
     } as ResponsiveLayouts
   }, [activeSection?.layouts])
 
+  // Calculate maximum bottom row of active section to dynamically scale canvas height in modify mode
+  const canvasMinHeight = useMemo(() => {
+    if (dashboardMode !== "modify") return undefined
+    const currentLg = activeSection.layouts?.lg || []
+    let maxBottomRow = 0
+    for (const it of currentLg) {
+      const bottom = (it.y || 0) + (it.h || 0)
+      if (bottom > maxBottomRow) maxBottomRow = bottom
+    }
+    // rowHeight is 44, margin is 12 -> each row is 56px. Give 8 extra rows buffer below lowest widget
+    return Math.max(540, (maxBottomRow + 8) * 56)
+  }, [dashboardMode, activeSection.layouts])
+
   // Currently selected widget object in active section
   const selectedWidget = useMemo(() => {
     if (!selectedWidgetId) return null
@@ -4708,12 +4721,13 @@ export function MonitoringPage() {
         {/* Canvas Area: flex-1 dynamically expands and shrinks smoothly */}
         <div className="flex-1 w-full min-w-0 transition-all duration-300">
           <div
-            className={`rounded-2xl transition duration-200 min-h-[480px] relative overflow-hidden ${
+            className={`rounded-2xl transition duration-200 relative overflow-hidden ${
               dashboardMode === "modify"
-                ? "border border-slate-200/90 p-2 sm:p-2.5 shadow-xs"
-                : "p-0.5 border-transparent"
+                ? "border border-slate-200/90 p-2 sm:p-2.5 pb-28 shadow-xs"
+                : "p-0.5 border-transparent pb-4"
             }`}
             style={{
+              minHeight: canvasMinHeight,
               backgroundColor: dashboardMode === "modify" ? "#f8fafc" : "transparent",
               backgroundImage:
                 dashboardMode === "modify"
@@ -4746,7 +4760,7 @@ export function MonitoringPage() {
                   cols={{ lg: 12, md: 12, sm: 12, xs: 1 }}
                   rowHeight={44}
                   margin={[12, 12]}
-                  compactType="vertical"
+                  compactType={null}
                   preventCollision={false}
                   isDraggable={dashboardMode === "modify"}
                   isResizable={dashboardMode === "modify"}
