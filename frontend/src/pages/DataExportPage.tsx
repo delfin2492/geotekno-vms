@@ -33,6 +33,7 @@ import { Link } from "react-router"
 import { useFleet } from "@/state/FleetProvider"
 import { api } from "@/services/api"
 import { PageHeader, StatusBadge, buttonPrimary, buttonSecondary, inputClass } from "@/components/common/UI"
+import * as XLSX from "xlsx"
 import type { AssetAttribute, Vessel } from "@/domain/types"
 
 export interface ExportAttribute {
@@ -461,40 +462,41 @@ export function DataExportPage() {
 
       const vesselTag = selectedVesselId === "all" ? "Fleet_All" : (currentVessel?.name || "Vessel").replace(/\s+/g, "_")
       const dateTag = new Date().toISOString().slice(0, 10).replace(/-/g, "")
-      const extension = fileFormat === "json" ? "json" : "csv"
-      const fileName = `export_${vesselTag}_${dateTag}_${Date.now().toString().slice(-4)}.${extension}`
+      const fileName = `export_${vesselTag}_${dateTag}_${Date.now().toString().slice(-4)}.xlsx`
 
-      let blob: Blob
-      let fileContent = ""
-
-      if (fileFormat === "json") {
-        const jsonExport = processedData.map((row) => {
-          const item: Record<string, any> = { vessel_id: row.asset_id || selectedVesselId }
-          for (const attr of activeAttributes) {
-            item[attr.field] = row[attr.field] ?? null
+      // Format data into structured columns for native Excel
+      const worksheetData = processedData.map((row) => {
+        const item: Record<string, any> = {}
+        for (const attr of activeAttributes) {
+          const colHeader = `${attr.label}${attr.unit ? ` (${attr.unit})` : ""}`
+          const raw = row[attr.field]
+          if (raw === null || raw === undefined) {
+            item[colHeader] = ""
+          } else if (typeof raw === "number") {
+            item[colHeader] = raw
+          } else {
+            item[colHeader] = String(raw)
           }
-          return item
-        })
-        fileContent = JSON.stringify(jsonExport, null, 2)
-        blob = new Blob([fileContent], { type: "application/json;charset=utf-8;" })
-      } else {
-        const headers = activeAttributes.map((a) => `"${a.label}${a.unit ? ` (${a.unit})` : ""}"`)
-        const csvRows = [headers.join(",")]
-
-        for (const row of processedData) {
-          const values = activeAttributes.map((attr) => {
-            const raw = row[attr.field]
-            if (raw === null || raw === undefined) return '""'
-            const strVal = String(raw).replace(/"/g, '""')
-            return `"${strVal}"`
-          })
-          csvRows.push(values.join(","))
         }
+        return item
+      })
 
-        fileContent = csvRows.join("\r\n")
-        const prefix = fileFormat === "excel" ? "\uFEFF" : ""
-        blob = new Blob([prefix + fileContent], { type: "text/csv;charset=utf-8;" })
-      }
+      const worksheet = XLSX.utils.json_to_sheet(worksheetData)
+
+      // Auto-fit column widths so text and numbers are properly visible
+      const colWidths = activeAttributes.map((attr) => {
+        const headerLen = `${attr.label}${attr.unit ? ` (${attr.unit})` : ""}`.length
+        return { wch: Math.max(headerLen + 4, 16) }
+      })
+      worksheet["!cols"] = colWidths
+
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Telemetry Data")
+
+      const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" })
+      const blob = new Blob([excelBuffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      })
 
       const downloadUrl = URL.createObjectURL(blob)
       const downloadLink = document.createElement("a")
@@ -766,7 +768,7 @@ export function DataExportPage() {
                 <div className="flex items-center gap-2">
                   <div className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 px-3 text-xs font-bold border-2 border-emerald-600 bg-emerald-50/70 text-emerald-800 shadow-2xs select-none">
                     <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-                    <span>Microsoft Excel (.csv / UTF-8 BOM)</span>
+                    <span>Microsoft Excel (.xlsx)</span>
                   </div>
                 </div>
               </div>
