@@ -90,6 +90,70 @@ export type WidgetType =
   | "table"
   | "gateway"
 
+export interface DepthThemePreset {
+  id: string
+  name: string
+  description: string
+  colors: {
+    shallow: string
+    caution: string
+    safe: string
+  }
+}
+
+export const DEPTH_THEME_PRESETS: DepthThemePreset[] = [
+  {
+    id: "standard",
+    name: "Standard Marine",
+    description: "Rose Hazard • Amber Caution • Cyan Deep",
+    colors: {
+      shallow: "#f43f5e",
+      caution: "#f59e0b",
+      safe: "#06b6d4",
+    },
+  },
+  {
+    id: "garmin",
+    name: "CHIRP Sonar Heatmap",
+    description: "Red Hot • Vivid Orange • Ocean Blue",
+    colors: {
+      shallow: "#ef4444",
+      caution: "#f97316",
+      safe: "#3b82f6",
+    },
+  },
+  {
+    id: "ecdis",
+    name: "ECDIS Hydrographic",
+    description: "Crimson Hazard • Chart Yellow • Safe Emerald",
+    colors: {
+      shallow: "#e11d48",
+      caution: "#eab308",
+      safe: "#10b981",
+    },
+  },
+  {
+    id: "neon",
+    name: "Deep Ocean Cyber",
+    description: "Neon Pink • Violet Purple • Electric Cyan",
+    colors: {
+      shallow: "#ec4899",
+      caution: "#a855f7",
+      safe: "#06b6d4",
+    },
+  },
+  {
+    id: "monochrome",
+    name: "Night Vision Nautical",
+    description: "Night Red • Muted Slate • Marine Sky",
+    colors: {
+      shallow: "#dc2626",
+      caution: "#64748b",
+      safe: "#38bdf8",
+    },
+  },
+]
+
 export interface WidgetConfig {
   min?: number
   max?: number
@@ -104,6 +168,16 @@ export interface WidgetConfig {
     green?: string
     orange?: string
     red?: string
+  }
+  depthColors?: {
+    shallow?: string
+    caution?: string
+    safe?: string
+  }
+  depthTheme?: string
+  depthThresholds?: {
+    shallow?: number
+    caution?: number
   }
   showCog?: boolean
   timeSpan?: string
@@ -1666,36 +1740,40 @@ function BarChartWidget({
     }
   }
 
-  // Safety thresholds:
-  // 0m - 5m: Shallow Hazard (Rose/Red)
-  // 5m - 10m: Caution Draft (Amber/Yellow)
-  // > 10m: Safe Deep Water (Cyan/Ocean Blue)
-  const isShallow = rawDepth > 0 && rawDepth < 5
-  const isCaution = rawDepth >= 5 && rawDepth < 10
-  const isSafe = rawDepth >= 10
+  // Configurable Depth Colors & Thresholds from widget settings
+  const userShallowColor = config?.depthColors?.shallow || "#f43f5e"
+  const userCautionColor = config?.depthColors?.caution || "#f59e0b"
+  const userSafeColor = config?.depthColors?.safe || "#06b6d4"
 
-  const statusColor = isShallow
-    ? "text-rose-700 bg-rose-50 border-rose-200"
+  const shallowThreshold = config?.depthThresholds?.shallow ?? 5
+  const cautionThreshold = config?.depthThresholds?.caution ?? 10
+
+  // Safety thresholds:
+  const isShallow = rawDepth > 0 && rawDepth < shallowThreshold
+  const isCaution = rawDepth >= shallowThreshold && rawDepth < cautionThreshold
+  const isSafe = rawDepth >= cautionThreshold
+
+  const activeColor = isShallow
+    ? userShallowColor
     : isCaution
-    ? "text-amber-700 bg-amber-50 border-amber-200"
-    : rawDepth > 0
-    ? "text-cyan-700 bg-cyan-50 border-cyan-200"
-    : "text-slate-500 bg-slate-50 border-slate-200"
+    ? userCautionColor
+    : userSafeColor
 
   const statusText = isShallow
-    ? "Shallow Depth (<5m)"
+    ? `Shallow Depth (<${shallowThreshold}m)`
     : isCaution
-    ? "Caution Draft (5-10m)"
+    ? `Caution Draft (${shallowThreshold}-${cautionThreshold}m)`
     : rawDepth > 0
-    ? "Safe Depth (>10m)"
+    ? `Safe Depth (>${cautionThreshold}m)`
     : "No Echo Signal"
 
-  // Dynamic Seabed Palette matching real-time depth zone
-  const seabedColor = isShallow
-    ? { primary: "#f43f5e", secondary: "#fecdd3", crest: "#fda4af", glow: "rgba(244,63,94,0.45)" }
-    : isCaution
-    ? { primary: "#f59e0b", secondary: "#fef3c7", crest: "#fde68a", glow: "rgba(245,158,11,0.45)" }
-    : { primary: "#06b6d4", secondary: "#cffafe", crest: "#67e8f9", glow: "rgba(6,182,212,0.45)" }
+  // Dynamic Seabed Palette matching real-time depth zone and user custom depth colors
+  const seabedColor = {
+    primary: activeColor,
+    secondary: `${activeColor}dd`,
+    crest: `${activeColor}ff`,
+    glow: `${activeColor}70`,
+  }
 
   // 5 scale ticks across the depth range
   const tickSteps = 4
@@ -1706,8 +1784,8 @@ function BarChartWidget({
   })
 
   // Risk zone strip heights (percentage of vertical scale)
-  const shallowLimitPct = Math.min(100, Math.max(0, (5 / range) * 100))
-  const cautionLimitPct = Math.min(100, Math.max(0, (10 / range) * 100))
+  const shallowLimitPct = Math.min(100, Math.max(0, (shallowThreshold / range) * 100))
+  const cautionLimitPct = Math.min(100, Math.max(0, (cautionThreshold / range) * 100))
 
   // Real-time Scrolling Historical Depth Buffer (Garmin CHIRP Waterfall Echogram)
   const sliceCount = 36
@@ -1813,8 +1891,18 @@ function BarChartWidget({
             </div>
           )}
 
-          <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border shadow-2xs ${statusColor}`}>
-            <span className={`h-2 w-2 rounded-full ${isShallow ? "bg-rose-500 animate-pulse" : isCaution ? "bg-amber-500" : isSafe ? "bg-cyan-500" : "bg-slate-400"}`} />
+          <div
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border shadow-2xs transition-colors duration-300"
+            style={{
+              backgroundColor: `${activeColor}15`,
+              borderColor: `${activeColor}40`,
+              color: activeColor,
+            }}
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${isShallow ? "animate-pulse" : ""}`}
+              style={{ backgroundColor: activeColor }}
+            />
             <span>{statusText}</span>
           </div>
         </div>
@@ -1824,11 +1912,11 @@ function BarChartWidget({
       <div className="relative flex-1 my-1 rounded-2xl overflow-hidden border border-slate-800 shadow-md flex bg-[#030712] min-h-[96px]">
         {/* Left: Graduated Sonar Depth Ruler */}
         <div className={`relative bg-slate-950/90 border-r border-slate-800/80 flex flex-col justify-between py-2 text-right shrink-0 select-none z-20 ${rulerWidthClass}`}>
-          {/* Risk Zone Color Bar */}
+          {/* Risk Zone Color Bar (Synchronized with user custom depth colors) */}
           <div className="absolute top-0 right-0 bottom-0 w-1 flex flex-col pointer-events-none">
-            <div className="bg-rose-500/90 w-full" style={{ height: `${shallowLimitPct}%` }} />
-            <div className="bg-amber-500/90 w-full" style={{ height: `${Math.max(0, cautionLimitPct - shallowLimitPct)}%` }} />
-            <div className="bg-cyan-500/90 w-full flex-1" />
+            <div className="w-full transition-colors duration-300" style={{ height: `${shallowLimitPct}%`, backgroundColor: userShallowColor }} />
+            <div className="w-full transition-colors duration-300" style={{ height: `${Math.max(0, cautionLimitPct - shallowLimitPct)}%`, backgroundColor: userCautionColor }} />
+            <div className="w-full flex-1 transition-colors duration-300" style={{ backgroundColor: userSafeColor }} />
           </div>
 
           {ticks.map((t) => (
@@ -1846,20 +1934,31 @@ function BarChartWidget({
           onWheel={handleWheel}
           className="relative flex-1 overflow-hidden bg-[#030712] flex flex-col justify-between"
         >
-          {/* Synchronized Depth Zone Ambient Layers (Aligned 1:1 with left ruler) */}
+          {/* Synchronized Depth Zone Ambient Layers (Aligned 1:1 with left ruler & custom colors) */}
           <div className="absolute inset-0 flex flex-col pointer-events-none z-0">
-            {/* Shallow Zone (0m - 5m): Soft Red Glow */}
+            {/* Shallow Zone */}
             <div
-              className="w-full bg-gradient-to-b from-rose-950/40 via-rose-900/15 to-transparent transition-all duration-300"
-              style={{ height: `${shallowLimitPct}%` }}
+              className="w-full transition-all duration-300"
+              style={{
+                height: `${shallowLimitPct}%`,
+                background: `linear-gradient(to bottom, ${userShallowColor}30, ${userShallowColor}10, transparent)`,
+              }}
             />
-            {/* Caution Zone (5m - 10m): Soft Amber Glow */}
+            {/* Caution Zone */}
             <div
-              className="w-full bg-gradient-to-b from-amber-950/30 via-amber-900/10 to-transparent transition-all duration-300"
-              style={{ height: `${Math.max(0, cautionLimitPct - shallowLimitPct)}%` }}
+              className="w-full transition-all duration-300"
+              style={{
+                height: `${Math.max(0, cautionLimitPct - shallowLimitPct)}%`,
+                background: `linear-gradient(to bottom, ${userCautionColor}28, ${userCautionColor}08, transparent)`,
+              }}
             />
-            {/* Safe Deep Water Zone (>10m): Marine Ocean Blue / Deep Cyan Glow */}
-            <div className="w-full flex-1 bg-gradient-to-b from-cyan-950/30 via-[#031525]/50 to-[#020b14] transition-all duration-300" />
+            {/* Safe Deep Water Zone */}
+            <div
+              className="w-full flex-1 transition-all duration-300"
+              style={{
+                background: `linear-gradient(to bottom, ${userSafeColor}22, #031525 60%, #020b14 100%)`,
+              }}
+            />
           </div>
 
           {/* Transducer Surface Transmission Pulse (0m Line) */}
@@ -1872,8 +1971,8 @@ function BarChartWidget({
             ))}
           </div>
 
-          {/* Zoom In / Zoom Out Floating Controls (Garmin Marine Style) */}
-          <div className="absolute top-1.5 right-2 z-30 flex items-center gap-1 bg-slate-950/85 backdrop-blur-md px-1.5 py-0.5 rounded-lg border border-slate-700/80 shadow-md select-none">
+          {/* Zoom In / Zoom Out Floating Controls (Garmin Marine Style - Left Aligned to prevent clash) */}
+          <div className="absolute top-1.5 left-2 z-30 flex items-center gap-1 bg-slate-950/85 backdrop-blur-md px-1.5 py-0.5 rounded-lg border border-slate-700/80 shadow-md select-none">
             {/* Zoom Out Button */}
             <button
               type="button"
@@ -1916,7 +2015,7 @@ function BarChartWidget({
             className="absolute inset-0 h-full w-full overflow-visible z-10"
           >
             <defs>
-              {/* Dynamic Seabed Sonar Return Gradient (Harmonized with Depth Safety Tier) */}
+              {/* Dynamic Seabed Sonar Return Gradient (Harmonized with Depth Safety Tier & Custom Colors) */}
               <linearGradient id="sonarSeabedGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={seabedColor.primary} stopOpacity="0.85" />
                 <stop offset="12%" stopColor={seabedColor.primary} stopOpacity="0.35" />
@@ -2007,13 +2106,12 @@ function BarChartWidget({
           }}
         >
           <div
-            className={`px-2 py-0.5 rounded-md text-[11px] font-black shadow-lg flex items-center gap-1 border transition cursor-default ${
-              isShallow
-                ? "bg-rose-600 text-white border-rose-300 shadow-rose-950/80 ring-1 ring-rose-400"
-                : isCaution
-                ? "bg-amber-500 text-slate-950 border-amber-200 shadow-amber-950/80"
-                : "bg-cyan-600 text-white border-cyan-300 shadow-cyan-950/80"
-            }`}
+            className="px-2 py-0.5 rounded-md text-[11px] font-black shadow-lg flex items-center gap-1 border transition-all cursor-default text-white"
+            style={{
+              backgroundColor: activeColor,
+              borderColor: `${activeColor}ee`,
+              boxShadow: `0 4px 14px ${activeColor}50`,
+            }}
           >
             <span>{rawDepth > 0 ? `${formatNum(rawDepth, decimals)} m` : "—"}</span>
           </div>
@@ -5088,6 +5186,261 @@ export function MonitoringPage() {
                                   className="w-full bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#db4040]"
                                   title="Critical threshold start value"
                                 />
+                              </div>
+                            </div>
+                          )
+                        })()}
+                      </div>
+
+                      <div className="border-t border-slate-100" />
+                    </>
+                  )}
+
+                  {/* 5. Section: Depth Color Filters & Templates (Water Depth Echosounder) */}
+                  {selectedWidget.type === "bar" && (
+                    <>
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => toggleInspectorSection("depthColors")}
+                          className="flex items-center gap-1.5 text-[11px] font-bold text-slate-800 hover:text-slate-950 transition cursor-pointer select-none mb-2"
+                        >
+                          <ChevronDown
+                            className={`h-3.5 w-3.5 text-slate-500 transition-transform duration-200 ${
+                              collapsedInspectorSections.depthColors ? "-rotate-90 text-slate-400" : "rotate-0"
+                            }`}
+                          />
+                          <span>Depth Color Filters & Templates</span>
+                        </button>
+
+                        {!collapsedInspectorSections.depthColors && (() => {
+                          const currentTheme = selectedWidget.config?.depthTheme || "standard"
+                          const currentColors = {
+                            shallow: selectedWidget.config?.depthColors?.shallow || "#f43f5e",
+                            caution: selectedWidget.config?.depthColors?.caution || "#f59e0b",
+                            safe: selectedWidget.config?.depthColors?.safe || "#06b6d4",
+                          }
+                          const currentThresholds = {
+                            shallow: selectedWidget.config?.depthThresholds?.shallow ?? 5,
+                            caution: selectedWidget.config?.depthThresholds?.caution ?? 10,
+                          }
+
+                          return (
+                            <div className="space-y-3">
+                              {/* Color Theme Templates */}
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-600 mb-1.5 uppercase tracking-wider">
+                                  Preset Templates
+                                </label>
+                                <div className="space-y-1.5">
+                                  {DEPTH_THEME_PRESETS.map((preset) => {
+                                    const isActive = currentTheme === preset.id
+                                    return (
+                                      <button
+                                        key={preset.id}
+                                        type="button"
+                                        onClick={() =>
+                                          updateWidgetConfig(selectedWidget.id, {
+                                            depthTheme: preset.id,
+                                            depthColors: { ...preset.colors },
+                                          })
+                                        }
+                                        className={`w-full flex items-center justify-between p-2 rounded-xl border text-left transition cursor-pointer ${
+                                          isActive
+                                            ? "bg-slate-900 text-white border-slate-900 shadow-xs"
+                                            : "bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200/80"
+                                        }`}
+                                      >
+                                        <div className="min-w-0 pr-2">
+                                          <div className="text-[11px] font-bold leading-tight">
+                                            {preset.name}
+                                          </div>
+                                          <div className={`text-[9px] truncate mt-0.5 ${isActive ? "text-slate-300" : "text-slate-500"}`}>
+                                            {preset.description}
+                                          </div>
+                                        </div>
+
+                                        {/* Color dots preview */}
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          <span
+                                            className="h-3 w-3 rounded-full border border-black/10"
+                                            style={{ backgroundColor: preset.colors.shallow }}
+                                            title="Shallow"
+                                          />
+                                          <span
+                                            className="h-3 w-3 rounded-full border border-black/10"
+                                            style={{ backgroundColor: preset.colors.caution }}
+                                            title="Caution"
+                                          />
+                                          <span
+                                            className="h-3 w-3 rounded-full border border-black/10"
+                                            style={{ backgroundColor: preset.colors.safe }}
+                                            title="Safe"
+                                          />
+                                        </div>
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Custom Color Settings (Mandiri) */}
+                              <div className="pt-2 border-t border-slate-100">
+                                <label className="block text-[10px] font-bold text-slate-600 mb-2 uppercase tracking-wider">
+                                  Custom Colors (Mandiri)
+                                </label>
+                                <div className="space-y-2">
+                                  {/* Shallow */}
+                                  <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-slate-50 border border-slate-100">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <div className="relative group shrink-0" title="Pilih warna zona dangkal">
+                                        <input
+                                          type="color"
+                                          value={currentColors.shallow}
+                                          onChange={(e) =>
+                                            updateWidgetConfig(selectedWidget.id, {
+                                              depthTheme: "custom",
+                                              depthColors: {
+                                                ...currentColors,
+                                                shallow: e.target.value,
+                                              },
+                                            })
+                                          }
+                                          className="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-10"
+                                        />
+                                        <span
+                                          className="h-6 w-6 rounded-lg block border border-slate-300 shadow-xs cursor-pointer transition transform group-hover:scale-105"
+                                          style={{ backgroundColor: currentColors.shallow }}
+                                        />
+                                      </div>
+                                      <div>
+                                        <div className="text-[11px] font-bold text-slate-800 leading-none">
+                                          Shallow (&lt; {currentThresholds.shallow}m)
+                                        </div>
+                                        <div className="text-[9px] font-mono text-slate-400 mt-0.5">
+                                          {currentColors.shallow.toUpperCase()}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Caution */}
+                                  <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-slate-50 border border-slate-100">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <div className="relative group shrink-0" title="Pilih warna zona waspada">
+                                        <input
+                                          type="color"
+                                          value={currentColors.caution}
+                                          onChange={(e) =>
+                                            updateWidgetConfig(selectedWidget.id, {
+                                              depthTheme: "custom",
+                                              depthColors: {
+                                                ...currentColors,
+                                                caution: e.target.value,
+                                              },
+                                            })
+                                          }
+                                          className="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-10"
+                                        />
+                                        <span
+                                          className="h-6 w-6 rounded-lg block border border-slate-300 shadow-xs cursor-pointer transition transform group-hover:scale-105"
+                                          style={{ backgroundColor: currentColors.caution }}
+                                        />
+                                      </div>
+                                      <div>
+                                        <div className="text-[11px] font-bold text-slate-800 leading-none">
+                                          Caution ({currentThresholds.shallow} - {currentThresholds.caution}m)
+                                        </div>
+                                        <div className="text-[9px] font-mono text-slate-400 mt-0.5">
+                                          {currentColors.caution.toUpperCase()}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Safe */}
+                                  <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-slate-50 border border-slate-100">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <div className="relative group shrink-0" title="Pilih warna zona laut dalam aman">
+                                        <input
+                                          type="color"
+                                          value={currentColors.safe}
+                                          onChange={(e) =>
+                                            updateWidgetConfig(selectedWidget.id, {
+                                              depthTheme: "custom",
+                                              depthColors: {
+                                                ...currentColors,
+                                                safe: e.target.value,
+                                              },
+                                            })
+                                          }
+                                          className="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-10"
+                                        />
+                                        <span
+                                          className="h-6 w-6 rounded-lg block border border-slate-300 shadow-xs cursor-pointer transition transform group-hover:scale-105"
+                                          style={{ backgroundColor: currentColors.safe }}
+                                        />
+                                      </div>
+                                      <div>
+                                        <div className="text-[11px] font-bold text-slate-800 leading-none">
+                                          Safe Deep (&gt; {currentThresholds.caution}m)
+                                        </div>
+                                        <div className="text-[9px] font-mono text-slate-400 mt-0.5">
+                                          {currentColors.safe.toUpperCase()}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Depth Threshold Limits (Batas Kedalaman) */}
+                              <div className="pt-2 border-t border-slate-100">
+                                <label className="block text-[10px] font-bold text-slate-600 mb-1.5 uppercase tracking-wider">
+                                  Batas Meteran Filter (Thresholds)
+                                </label>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="block text-[9px] font-bold text-slate-500 mb-1">
+                                      Batas Dangkal (m)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={20}
+                                      value={currentThresholds.shallow}
+                                      onChange={(e) =>
+                                        updateWidgetConfig(selectedWidget.id, {
+                                          depthThresholds: {
+                                            ...currentThresholds,
+                                            shallow: Number(e.target.value),
+                                          },
+                                        })
+                                      }
+                                      className="w-full bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:bg-white focus:outline-none"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[9px] font-bold text-slate-500 mb-1">
+                                      Batas Waspada (m)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min={2}
+                                      max={50}
+                                      value={currentThresholds.caution}
+                                      onChange={(e) =>
+                                        updateWidgetConfig(selectedWidget.id, {
+                                          depthThresholds: {
+                                            ...currentThresholds,
+                                            caution: Number(e.target.value),
+                                          },
+                                        })
+                                      }
+                                      className="w-full bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:bg-white focus:outline-none"
+                                    />
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           )
