@@ -996,60 +996,60 @@ function TrendChart({
     [effectiveKey],
   )
 
-  // Real-time history series state (holds 24 points)
+  // Real-time history series tracking: only update when true telemetry arrives from agent
+  const lastUpdateRef = useRef<string | number | undefined>(vessel.updatedAt)
+  const lastValRef = useRef<number>(currentVal)
+
+  // Real-time history series state (holds 20 points)
   const [history, setHistory] = useState<ChartPoint[]>(() => {
-    const now = Date.now()
+    const baseTime = vessel.updatedAt ? new Date(vessel.updatedAt).getTime() : Date.now()
     const pts: ChartPoint[] = []
-    const count = 24
-    const intervalMs = 2500
+    const count = 20
+    const intervalMs = 3000
     for (let i = count - 1; i >= 0; i--) {
-      const t = now - i * intervalMs
-      pts.push({ timestamp: t, value: Number(currentVal.toFixed(decimals + 1)) })
+      pts.push({
+        timestamp: baseTime - i * intervalMs,
+        value: Number(currentVal.toFixed(decimals + 1)),
+      })
     }
     return pts
   })
 
   // When vessel.id or attributeKey changes, initialize history with actual current telemetry
   useEffect(() => {
-    const now = Date.now()
+    const baseTime = vessel.updatedAt ? new Date(vessel.updatedAt).getTime() : Date.now()
     const pts: ChartPoint[] = []
-    const count = 24
-    const intervalMs = 2500
+    const count = 20
+    const intervalMs = 3000
     for (let i = count - 1; i >= 0; i--) {
-      const t = now - i * intervalMs
-      pts.push({ timestamp: t, value: Number(currentVal.toFixed(decimals + 1)) })
+      pts.push({
+        timestamp: baseTime - i * intervalMs,
+        value: Number(currentVal.toFixed(decimals + 1)),
+      })
     }
     setHistory(pts)
+    lastUpdateRef.current = vessel.updatedAt
+    lastValRef.current = currentVal
   }, [effectiveKey, vessel?.id])
 
-  // Real-time update streaming: update latest point on incoming telemetry
+  // Real-time update streaming: ONLY update when new telemetry arrives from backend/agent
   useEffect(() => {
-    setHistory((prev) => {
-      if (prev.length === 0) return prev
-      const newPt: ChartPoint = {
-        timestamp: Date.now(),
-        value: Number(currentVal.toFixed(decimals + 1)),
-      }
-      return [...prev.slice(1), newPt]
-    })
-  }, [currentVal, decimals])
+    const isNewTimestamp = vessel.updatedAt && vessel.updatedAt !== lastUpdateRef.current
+    const isValChanged = currentVal !== lastValRef.current
 
-  // Heartbeat interval (every 2.5s) to advance the timeline if telemetry is static
-  useEffect(() => {
-    const timer = setInterval(() => {
+    if (isNewTimestamp || isValChanged) {
+      lastUpdateRef.current = vessel.updatedAt
+      lastValRef.current = currentVal
+      const ptTime = vessel.updatedAt ? new Date(vessel.updatedAt).getTime() : Date.now()
       setHistory((prev) => {
-        if (prev.length === 0) return prev
-        const jitter = (Math.random() - 0.49) * (currentVal ? currentVal * 0.006 : 0.15)
-        const v = Math.max(0, currentVal + jitter)
         const newPt: ChartPoint = {
-          timestamp: Date.now(),
-          value: Number(v.toFixed(decimals + 1)),
+          timestamp: ptTime,
+          value: Number(currentVal.toFixed(decimals + 1)),
         }
         return [...prev.slice(1), newPt]
       })
-    }, 2500)
-    return () => clearInterval(timer)
-  }, [currentVal, decimals])
+    }
+  }, [vessel.updatedAt, currentVal, decimals])
 
   // Interactive Hover state
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
@@ -1064,6 +1064,10 @@ function TrendChart({
   const lastVal = values[values.length - 1] ?? currentVal
   const diffVal = lastVal - firstVal
   const pctChange = firstVal !== 0 ? (diffVal / firstVal) * 100 : 0
+
+  // Real-time status: Check if vessel received telemetry recently (within 25s)
+  const updateAgeMs = vessel.updatedAt ? Date.now() - new Date(vessel.updatedAt).getTime() : Infinity
+  const isLive = updateAgeMs < 25000
 
   // Adaptive scale tiers based on widget width and height
   const isXLarge = width >= 520 || height >= 240
@@ -1084,17 +1088,18 @@ function TrendChart({
 
   // SVG Geometry - dynamic sizing to match container
   const svgWidth = Math.max(280, width - 24)
-  const svgHeight = Math.max(60, Math.round(height * (isSmall ? 0.45 : 0.55)))
+  const svgHeight = Math.max(76, Math.round(height * (isSmall ? 0.48 : 0.58)))
   const padLeft = 40
   const padRight = 14
-  const padTop = 12
-  const padBottom = 20
+  const padTop = 10
+  const padBottom = 22
   const drawW = svgWidth - padLeft - padRight
   const drawH = svgHeight - padTop - padBottom
+  const bottomY = padTop + drawH
 
   // Dynamic Y Scale with headroom padding
   const diffMinMax = maxVal - minVal
-  const padding = diffMinMax === 0 ? (maxVal === 0 ? 5 : maxVal * 0.15) : diffMinMax * 0.18
+  const padding = diffMinMax === 0 ? (maxVal === 0 ? 5 : maxVal * 0.1) : diffMinMax * 0.18
   const scaleMin = Math.max(0, minVal - padding)
   const scaleMax = maxVal + padding || 10
   const scaleRange = scaleMax - scaleMin || 1
@@ -1106,6 +1111,33 @@ function TrendChart({
     const y = padTop + drawH - normalizedY * drawH
     return { x, y, pt }
   })
+
+  // Horizontal Time Ticks calculation across history points
+  const timeTicks = useMemo(() => {
+    if (history.length < 2) return []
+    const count = width < 340 ? 2 : width < 500 ? 3 : 4
+    const step = (history.length - 1) / (count - 1)
+    const ticks: { x: number; label: string; textAnchor: "start" | "middle" | "end" }[] = []
+
+    for (let i = 0; i < count; i++) {
+      const idx = Math.min(history.length - 1, Math.round(i * step))
+      const pt = history[idx]
+      const x = padLeft + (idx / Math.max(1, history.length - 1)) * drawW
+      const d = new Date(pt.timestamp)
+      const label = isNaN(d.getTime())
+        ? ""
+        : d.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false,
+          })
+      const textAnchor: "start" | "middle" | "end" =
+        i === 0 ? "start" : i === count - 1 ? "end" : "middle"
+      ticks.push({ x, label, textAnchor })
+    }
+    return ticks
+  }, [history, width, padLeft, drawW])
 
   // Generate smooth SVG curve
   function buildSmoothCurve(pts: { x: number; y: number }[]) {
@@ -1129,7 +1161,6 @@ function TrendChart({
   }
 
   const curvePath = buildSmoothCurve(svgPoints)
-  const bottomY = padTop + drawH
   const firstPt = svgPoints[0] || { x: padLeft, y: bottomY }
   const lastPt = svgPoints[svgPoints.length - 1] || { x: padLeft + drawW, y: bottomY }
   const areaPath = curvePath
@@ -1192,14 +1223,21 @@ function TrendChart({
               {pctChange.toFixed(1)}%
             </span>
 
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 border border-red-200/80 text-[9px] font-extrabold text-[#db4040]">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#db4040] animate-pulse" />
-              LIVE
-            </span>
+            {isLive ? (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 border border-red-200/80 text-[9px] font-extrabold text-[#db4040]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#db4040] animate-pulse" />
+                LIVE
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[9px] font-bold text-slate-500">
+                <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                STATIC
+              </span>
+            )}
           </div>
 
           <div className="text-[9px] font-semibold text-slate-400">
-            {config?.timeSpan ? `Window ${config.timeSpan}` : "Realtime Buffer"}
+            {isLive ? (config?.timeSpan ? `Window ${config.timeSpan}` : "Realtime Buffer") : "No Incoming Data"}
           </div>
         </div>
       </div>
@@ -1216,8 +1254,8 @@ function TrendChart({
           Max: <strong className="font-bold text-slate-600">{maxVal.toFixed(decimals)}</strong>
         </span>
         {activeHoverPt && (
-          <span className="ml-auto font-bold text-[#db4040] bg-red-50 px-1.5 py-0.5 rounded border border-red-100 text-[9px]">
-            {activeHoverPt.pt.value.toFixed(decimals)} {unit}
+          <span className="ml-auto font-bold text-[#db4040] bg-red-50 px-1.5 py-0.5 rounded border border-red-100 text-[9px] tabular-nums">
+            {new Date(activeHoverPt.pt.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })} • {activeHoverPt.pt.value.toFixed(decimals)} {unit}
           </span>
         )}
       </div>
@@ -1267,6 +1305,40 @@ function TrendChart({
             )
           })}
 
+          {/* Horizontal X Axis baseline */}
+          <line
+            x1={padLeft}
+            y1={bottomY}
+            x2={padLeft + drawW}
+            y2={bottomY}
+            stroke="#e2e8f0"
+            strokeWidth="1"
+          />
+
+          {/* Horizontal Time Ticks & Labels */}
+          {timeTicks.map((t, idx) => (
+            <g key={idx}>
+              <line
+                x1={t.x}
+                y1={bottomY}
+                x2={t.x}
+                y2={bottomY + 3.5}
+                stroke="#cbd5e1"
+                strokeWidth="1"
+              />
+              <text
+                x={t.x}
+                y={bottomY + 13}
+                textAnchor={t.textAnchor}
+                fill="#94a3b8"
+                fontSize="7.5"
+                fontWeight="600"
+              >
+                {t.label}
+              </text>
+            </g>
+          ))}
+
           {/* Area fill */}
           {areaPath && <path d={areaPath} fill={`url(#${chartId})`} />}
 
@@ -1282,10 +1354,10 @@ function TrendChart({
             />
           )}
 
-          {/* Pulse dot on latest point */}
+          {/* Pulse dot on latest point (pulses only when live) */}
           {lastPt && (
             <g transform={`translate(${lastPt.x}, ${lastPt.y})`}>
-              <circle r="7" fill="#db4040" opacity="0.25" className="animate-ping" />
+              {isLive && <circle r="7" fill="#db4040" opacity="0.25" className="animate-ping" />}
               <circle r="3.5" fill="#db4040" stroke="#ffffff" strokeWidth="2" />
             </g>
           )}
