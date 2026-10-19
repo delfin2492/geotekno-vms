@@ -1628,11 +1628,11 @@ function BarChartWidget({
   const minDepth = typeof config?.min === "number" ? config.min : 0
   const range = Math.max(5, maxDepth - minDepth)
 
-  // Seabed vertical position percentage from surface (15% to 85% range)
+  // Seabed vertical position percentage from surface (14% to 88% range)
   const depthPct =
     rawDepth > 0
-      ? Math.min(85, Math.max(16, ((rawDepth - minDepth) / range) * 100))
-      : 20
+      ? Math.min(88, Math.max(14, ((rawDepth - minDepth) / range) * 100))
+      : 14
 
   // Safety thresholds
   const isShallow = rawDepth > 0 && rawDepth < 5
@@ -1699,7 +1699,7 @@ function BarChartWidget({
         </div>
       </div>
 
-      {/* 2. Main Visual Depth Instrument: Dual-Blue Water Column + Ruler */}
+      {/* 2. Main Visual Depth Instrument: Water Column (Top) + Rising Seabed (Bottom) */}
       <div className="relative flex-1 my-1.5 rounded-2xl overflow-hidden border border-slate-200/90 shadow-sm flex bg-slate-950 min-h-[90px]">
         {/* Left: Graduated Depth Scale Ruler */}
         <div className={`relative bg-slate-900 border-r border-slate-800 flex flex-col justify-between py-2 text-right shrink-0 select-none z-20 ${rulerWidthClass}`}>
@@ -1732,9 +1732,8 @@ function BarChartWidget({
           ))}
         </div>
 
-        {/* Right / Center: Dual-Blue Water Column */}
-        {/* Upper Layer: Surface Water (Air Permukaan Kapal) - Bright Cyan/Sky Blue */}
-        <div className="relative flex-1 overflow-hidden bg-gradient-to-b from-[#38bdf8] via-[#0ea5e9] to-[#0284c7] flex flex-col justify-between">
+        {/* Right / Center: Water Column (Top) + Rising Seabed (Bottom) */}
+        <div className="relative flex-1 overflow-hidden bg-gradient-to-b from-[#0284c7] via-[#0369a1] to-[#075985] flex flex-col justify-between">
           {/* Horizontal Depth Reference Guide Lines */}
           <div className="absolute inset-0 pointer-events-none flex flex-col justify-between z-10 opacity-20">
             {ticks.map((t) => (
@@ -1742,48 +1741,68 @@ function BarChartWidget({
             ))}
           </div>
 
-          {/* Surface Level: Ship Floating at 0m */}
-          <div className="absolute top-0 inset-x-0 h-7 flex items-center px-2.5 z-30 bg-gradient-to-b from-sky-200/30 to-transparent">
-            <div className="flex items-center gap-1.5 bg-slate-900/80 backdrop-blur-xs text-white px-2 py-0.5 rounded-md border border-white/20 shadow-xs">
+          {/* Surface Level: Ship Floating at 0m (Keel) */}
+          <div className="absolute top-0 inset-x-0 h-7 flex items-center justify-between px-2.5 z-30 bg-gradient-to-b from-sky-300/30 to-transparent">
+            <div className="flex items-center gap-1.5 bg-slate-900/85 backdrop-blur-xs text-white px-2 py-0.5 rounded-md border border-white/20 shadow-xs">
               <Ship className="h-3.5 w-3.5 text-cyan-300" />
               <span className="text-[9px] font-black uppercase tracking-tight text-cyan-100">
                 Keel (0m)
               </span>
             </div>
+            <div className="text-[9px] font-bold text-sky-200/60 uppercase tracking-widest hidden sm:block">
+              Water Column
+            </div>
           </div>
 
-          {/* Lower Layer: Depth Water (Warna Kedalaman) - Deep Royal Ocean Blue */}
+          {/* Lower Layer: Seabed (Dasar Laut / Seafloor Acoustic Echo Return) */}
           <div
-            className="absolute inset-x-0 bottom-0 transition-all duration-700 ease-out z-20 flex flex-col bg-gradient-to-b from-[#1e40af] via-[#1e3a8a] to-[#172554]"
+            className="absolute inset-x-0 bottom-0 transition-all duration-700 ease-out z-20 flex flex-col bg-gradient-to-b from-[#1e293b] via-[#0f172a] to-[#020617] border-t border-slate-700/60 shadow-[0_-8px_20px_rgba(0,0,0,0.5)]"
             style={{ top: `${depthPct}%` }}
           >
-            {/* Distinct Water Horizon Dividing Line */}
+            {/* Sonar Acoustic Seabed Contour Wave Line */}
             <div className="relative w-full shrink-0 -mt-2">
               <svg
                 viewBox="0 0 100 12"
                 preserveAspectRatio="none"
                 className="w-full h-3 overflow-visible"
               >
-                {/* Deep water top fill */}
+                {/* Seabed top terrain fill */}
                 <path
-                  d="M 0,6 Q 25,2 50,6 T 100,6 L 100,12 L 0,12 Z"
-                  fill="#1e40af"
+                  d="M 0,6 Q 20,2 40,7 T 80,4 T 100,6 L 100,12 L 0,12 Z"
+                  fill="#1e293b"
                 />
-                {/* Luminous dividing depth contour line */}
+                {/* Luminous acoustic sonar reflection contour line */}
                 <path
-                  d="M 0,6 Q 25,2 50,6 T 100,6"
+                  d="M 0,6 Q 20,2 40,7 T 80,4 T 100,6"
                   fill="none"
-                  stroke={isShallow ? "#fb7185" : isCaution ? "#fcd34d" : "#93c5fd"}
-                  strokeWidth="2.5"
+                  stroke={isShallow ? "#f43f5e" : isCaution ? "#f59e0b" : "#10b981"}
+                  strokeWidth="2.8"
                   strokeLinecap="round"
                 />
               </svg>
             </div>
 
-            {/* Depth Water Body (Clean, rich deep blue) */}
-            <div className="flex-1 px-3 py-1.5 flex items-end justify-between">
-              <div className="text-[9px] font-bold text-blue-200/70 uppercase tracking-wider">
-                Deep Water
+            {/* Seabed Interior: Acoustic Sonar Echo Pattern & Label */}
+            <div className="flex-1 px-3 py-1.5 flex items-end justify-between relative overflow-hidden">
+              {/* Subtle hatched acoustic echo lines */}
+              <div
+                className="absolute inset-0 opacity-15 pointer-events-none"
+                style={{
+                  backgroundImage: "repeating-linear-gradient(45deg, #cbd5e1 0, #cbd5e1 1px, transparent 0, transparent 8px)",
+                }}
+              />
+
+              <div className="relative z-10 flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-300">
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    isShallow ? "bg-rose-500 animate-pulse" : isCaution ? "bg-amber-500" : "bg-emerald-500"
+                  }`}
+                />
+                <span>{isShallow ? "SEABED (SHALLOW HAZARD)" : "SEABED / DASAR LAUT"}</span>
+              </div>
+
+              <div className="relative z-10 text-[9px] font-mono font-bold text-slate-400">
+                ECHO RETURN
               </div>
             </div>
           </div>
@@ -1799,7 +1818,7 @@ function BarChartWidget({
                   ? "bg-rose-600 text-white border-rose-400 shadow-rose-950/60"
                   : isCaution
                   ? "bg-amber-500 text-slate-950 border-amber-300 shadow-amber-950/60"
-                  : "bg-blue-600 text-white border-blue-400 shadow-blue-950/60"
+                  : "bg-emerald-600 text-white border-emerald-400 shadow-emerald-950/60"
               }`}
             >
               <span>{rawDepth > 0 ? `${formatNum(rawDepth, decimals)} m` : "—"}</span>
