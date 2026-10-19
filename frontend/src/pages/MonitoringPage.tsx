@@ -1732,13 +1732,37 @@ function BarChartWidget({
     setManualMax(null)
   }
 
-  const handleWheel = (e: React.WheelEvent) => {
-    if (e.deltaY < 0) {
-      handleZoomIn()
-    } else if (e.deltaY > 0) {
-      handleZoomOut()
+  // Native wheel listener on ref with { passive: false } to prevent page scroll chaining
+  const echogramContainerRef = useRef<HTMLDivElement>(null)
+  const maxDepthRef = useRef(maxDepth)
+  maxDepthRef.current = maxDepth
+
+  useEffect(() => {
+    const el = echogramContainerRef.current
+    if (!el) return
+
+    const onWheelNative = (e: WheelEvent) => {
+      // Prevent page from scrolling up/down when zooming in/out on the widget
+      e.preventDefault()
+      e.stopPropagation()
+
+      const current = maxDepthRef.current
+      if (e.deltaY < 0) {
+        // Scroll Up -> Zoom In (detail skala lebih dekat)
+        const smaller = [...ZOOM_PRESETS].reverse().find((val) => val < current)
+        setManualMax(smaller !== undefined ? smaller : ZOOM_PRESETS[0])
+      } else if (e.deltaY > 0) {
+        // Scroll Down -> Zoom Out (skala lebih lebar)
+        const larger = ZOOM_PRESETS.find((val) => val > current)
+        setManualMax(larger !== undefined ? larger : ZOOM_PRESETS[ZOOM_PRESETS.length - 1])
+      }
     }
-  }
+
+    el.addEventListener("wheel", onWheelNative, { passive: false })
+    return () => {
+      el.removeEventListener("wheel", onWheelNative)
+    }
+  }, [])
 
   // Configurable Depth Colors & Thresholds from widget settings
   const userShallowColor = config?.depthColors?.shallow || "#f43f5e"
@@ -1931,7 +1955,8 @@ function BarChartWidget({
 
         {/* Center: Real-Time Scrolling CHIRP Echogram Canvas with Zoom and Zone Alignment */}
         <div
-          onWheel={handleWheel}
+          ref={echogramContainerRef}
+          style={{ overscrollBehavior: "contain" }}
           className="relative flex-1 overflow-hidden bg-[#030712] flex flex-col justify-between"
         >
           {/* Synchronized Depth Zone Ambient Layers (Aligned 1:1 with left ruler & custom colors) */}
