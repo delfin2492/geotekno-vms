@@ -29,6 +29,7 @@ import {
   Map,
   Maximize2,
   Minimize2,
+  Minus,
   Navigation,
   Pencil,
   Plus,
@@ -1620,15 +1621,55 @@ function BarChartWidget({
   const rawDepth = vessel.depth !== undefined && vessel.depth !== null ? vessel.depth : 0
   const unit = config?.unit || "m"
 
+  // Discrete clean steps for depth zoom levels (multiples of 4 for clean whole-integer scale ticks)
+  const ZOOM_PRESETS = [4, 8, 12, 16, 20, 24, 32, 40, 60, 80, 100, 150, 200]
+  const [manualMax, setManualMax] = useState<number | null>(null)
+
   // Flexible max depth based on incoming payload (+10m headroom, rounded cleanly for 4 scale ticks)
   const configuredMax = typeof config?.max === "number" && config.max > 0 ? config.max : null
-  const dynamicMax = Math.max(10, Math.ceil((rawDepth + 10) / 4) * 4)
-  const maxDepth = configuredMax ?? dynamicMax
+  const dynamicMax = Math.max(8, Math.ceil((rawDepth + 10) / 4) * 4)
+  const maxDepth = manualMax ?? (configuredMax ?? dynamicMax)
+  const isAutoZoom = manualMax === null
 
   const minDepth = typeof config?.min === "number" ? config.min : 0
-  const range = Math.max(5, maxDepth - minDepth)
+  const range = Math.max(4, maxDepth - minDepth)
 
-  // Safety thresholds
+  const handleZoomIn = () => {
+    // Find preset smaller than current maxDepth
+    const smaller = [...ZOOM_PRESETS].reverse().find((val) => val < maxDepth)
+    if (smaller !== undefined) {
+      setManualMax(smaller)
+    } else {
+      setManualMax(ZOOM_PRESETS[0]) // Min 4m
+    }
+  }
+
+  const handleZoomOut = () => {
+    // Find preset larger than current maxDepth
+    const larger = ZOOM_PRESETS.find((val) => val > maxDepth)
+    if (larger !== undefined) {
+      setManualMax(larger)
+    } else {
+      setManualMax(ZOOM_PRESETS[ZOOM_PRESETS.length - 1]) // Max 200m
+    }
+  }
+
+  const handleResetAuto = () => {
+    setManualMax(null)
+  }
+
+  const handleWheel = (e: React.WheelEvent) => {
+    if (e.deltaY < 0) {
+      handleZoomIn()
+    } else if (e.deltaY > 0) {
+      handleZoomOut()
+    }
+  }
+
+  // Safety thresholds:
+  // 0m - 5m: Shallow Hazard (Rose/Red)
+  // 5m - 10m: Caution Draft (Amber/Yellow)
+  // > 10m: Safe Deep Water (Cyan/Ocean Blue)
   const isShallow = rawDepth > 0 && rawDepth < 5
   const isCaution = rawDepth >= 5 && rawDepth < 10
   const isSafe = rawDepth >= 10
@@ -1638,7 +1679,7 @@ function BarChartWidget({
     : isCaution
     ? "text-amber-700 bg-amber-50 border-amber-200"
     : rawDepth > 0
-    ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+    ? "text-cyan-700 bg-cyan-50 border-cyan-200"
     : "text-slate-500 bg-slate-50 border-slate-200"
 
   const statusText = isShallow
@@ -1649,6 +1690,13 @@ function BarChartWidget({
     ? "Safe Depth (>10m)"
     : "No Echo Signal"
 
+  // Dynamic Seabed Palette matching real-time depth zone
+  const seabedColor = isShallow
+    ? { primary: "#f43f5e", secondary: "#fecdd3", crest: "#fda4af", glow: "rgba(244,63,94,0.45)" }
+    : isCaution
+    ? { primary: "#f59e0b", secondary: "#fef3c7", crest: "#fde68a", glow: "rgba(245,158,11,0.45)" }
+    : { primary: "#06b6d4", secondary: "#cffafe", crest: "#67e8f9", glow: "rgba(6,182,212,0.45)" }
+
   // 5 scale ticks across the depth range
   const tickSteps = 4
   const ticks = Array.from({ length: tickSteps + 1 }, (_, i) => {
@@ -1657,7 +1705,7 @@ function BarChartWidget({
     return { val, pct }
   })
 
-  // Risk zone strip heights
+  // Risk zone strip heights (percentage of vertical scale)
   const shallowLimitPct = Math.min(100, Math.max(0, (5 / range) * 100))
   const cautionLimitPct = Math.min(100, Math.max(0, (10 / range) * 100))
 
@@ -1766,7 +1814,7 @@ function BarChartWidget({
           )}
 
           <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border shadow-2xs ${statusColor}`}>
-            <span className={`h-2 w-2 rounded-full ${isShallow ? "bg-rose-500 animate-pulse" : isCaution ? "bg-amber-500" : isSafe ? "bg-emerald-500" : "bg-slate-400"}`} />
+            <span className={`h-2 w-2 rounded-full ${isShallow ? "bg-rose-500 animate-pulse" : isCaution ? "bg-amber-500" : isSafe ? "bg-cyan-500" : "bg-slate-400"}`} />
             <span>{statusText}</span>
           </div>
         </div>
@@ -1793,16 +1841,72 @@ function BarChartWidget({
           ))}
         </div>
 
-        {/* Center: Real-Time Scrolling CHIRP Echogram Canvas */}
-        <div className="relative flex-1 overflow-hidden bg-[#030712] flex flex-col justify-between">
-          {/* Surface Transducer Transmission Pulse (Near-Field Clutter at 0m) */}
-          <div className="absolute top-0 inset-x-0 h-2 bg-gradient-to-b from-[#ef4444] via-[#f59e0b] to-transparent opacity-80 z-20 pointer-events-none" />
+        {/* Center: Real-Time Scrolling CHIRP Echogram Canvas with Zoom and Zone Alignment */}
+        <div
+          onWheel={handleWheel}
+          className="relative flex-1 overflow-hidden bg-[#030712] flex flex-col justify-between"
+        >
+          {/* Synchronized Depth Zone Ambient Layers (Aligned 1:1 with left ruler) */}
+          <div className="absolute inset-0 flex flex-col pointer-events-none z-0">
+            {/* Shallow Zone (0m - 5m): Soft Red Glow */}
+            <div
+              className="w-full bg-gradient-to-b from-rose-950/40 via-rose-900/15 to-transparent transition-all duration-300"
+              style={{ height: `${shallowLimitPct}%` }}
+            />
+            {/* Caution Zone (5m - 10m): Soft Amber Glow */}
+            <div
+              className="w-full bg-gradient-to-b from-amber-950/30 via-amber-900/10 to-transparent transition-all duration-300"
+              style={{ height: `${Math.max(0, cautionLimitPct - shallowLimitPct)}%` }}
+            />
+            {/* Safe Deep Water Zone (>10m): Marine Ocean Blue / Deep Cyan Glow */}
+            <div className="w-full flex-1 bg-gradient-to-b from-cyan-950/30 via-[#031525]/50 to-[#020b14] transition-all duration-300" />
+          </div>
+
+          {/* Transducer Surface Transmission Pulse (0m Line) */}
+          <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-b from-cyan-400/60 via-sky-500/20 to-transparent z-20 pointer-events-none" />
 
           {/* Depth Reference Grid Lines */}
           <div className="absolute inset-0 pointer-events-none flex flex-col justify-between z-10 opacity-20">
             {ticks.map((t) => (
               <div key={t.pct} className="border-b border-dashed border-cyan-400 w-full" />
             ))}
+          </div>
+
+          {/* Zoom In / Zoom Out Floating Controls (Garmin Marine Style) */}
+          <div className="absolute top-1.5 right-2 z-30 flex items-center gap-1 bg-slate-950/85 backdrop-blur-md px-1.5 py-0.5 rounded-lg border border-slate-700/80 shadow-md select-none">
+            {/* Zoom Out Button */}
+            <button
+              type="button"
+              onClick={handleZoomOut}
+              title="Zoom Out (Perlebar jangkauan skala)"
+              className="p-1 rounded text-slate-300 hover:text-white hover:bg-slate-800 transition active:scale-95 cursor-pointer"
+            >
+              <Minus className="h-3 w-3" />
+            </button>
+
+            {/* Auto / Scale Display Button */}
+            <button
+              type="button"
+              onClick={handleResetAuto}
+              title={isAutoZoom ? "Skala Otomatis Aktif (Payload + 10m)" : "Klik untuk reset ke Skala Otomatis"}
+              className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition active:scale-95 cursor-pointer ${
+                isAutoZoom
+                  ? "bg-cyan-500/25 text-cyan-300 border border-cyan-500/50"
+                  : "bg-slate-800 text-amber-300 hover:text-amber-200 border border-slate-600"
+              }`}
+            >
+              {isAutoZoom ? "AUTO" : `${maxDepth}m`}
+            </button>
+
+            {/* Zoom In Button */}
+            <button
+              type="button"
+              onClick={handleZoomIn}
+              title="Zoom In (Perbesar resolusi kedalaman)"
+              className="p-1 rounded text-slate-300 hover:text-white hover:bg-slate-800 transition active:scale-95 cursor-pointer"
+            >
+              <Plus className="h-3 w-3" />
+            </button>
           </div>
 
           {/* Real-Time SVG Acoustic Echogram */}
@@ -1812,50 +1916,49 @@ function BarChartWidget({
             className="absolute inset-0 h-full w-full overflow-visible z-10"
           >
             <defs>
-              {/* Iconic Garmin CHIRP Sonar Multi-Layer Gradient */}
-              <linearGradient id="chirpSeabedGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#fef08a" stopOpacity="1" />    {/* Hard Yellow Crest */}
-                <stop offset="6%" stopColor="#f97316" stopOpacity="0.95" /> {/* Orange Layer */}
-                <stop offset="16%" stopColor="#dc2626" stopOpacity="0.9" />  {/* High Absorption Red */}
-                <stop offset="42%" stopColor="#7f1d1d" stopOpacity="0.85" /> {/* Maroon Sediment */}
-                <stop offset="100%" stopColor="#09090b" stopOpacity="0.95" />{/* Deep Bedrock / Black */}
+              {/* Dynamic Seabed Sonar Return Gradient (Harmonized with Depth Safety Tier) */}
+              <linearGradient id="sonarSeabedGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={seabedColor.primary} stopOpacity="0.85" />
+                <stop offset="12%" stopColor={seabedColor.primary} stopOpacity="0.35" />
+                <stop offset="35%" stopColor="#0f172a" stopOpacity="0.9" />
+                <stop offset="100%" stopColor="#020617" stopOpacity="0.98" />
               </linearGradient>
 
               {/* Acoustic Surface Clutter Glow */}
               <linearGradient id="surfaceSonarPulse" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#ef4444" stopOpacity="0.7" />
-                <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
+                <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.6" />
+                <stop offset="100%" stopColor="#38bdf8" stopOpacity="0" />
               </linearGradient>
             </defs>
 
             {/* Surface Pulse Ring */}
-            <rect x="0" y="0" width={svgW} height="6" fill="url(#surfaceSonarPulse)" />
+            <rect x="0" y="0" width={svgW} height="5" fill="url(#surfaceSonarPulse)" />
 
             {/* Faint Floating Sonar Water Particles */}
             <circle cx={svgW * 0.28} cy={Math.max(16, currentDepthY * 0.55)} r="1.5" fill="#38bdf8" opacity="0.35" />
             <circle cx={svgW * 0.52} cy={Math.max(20, currentDepthY * 0.72)} r="1.8" fill="#38bdf8" opacity="0.3" />
             <circle cx={svgW * 0.74} cy={Math.max(14, currentDepthY * 0.45)} r="1.2" fill="#38bdf8" opacity="0.4" />
 
-            {/* Multi-Layered CHIRP Seabed Area Fill */}
-            {seabedArea && <path d={seabedArea} fill="url(#chirpSeabedGrad)" />}
+            {/* Seabed Depth Return Area Fill */}
+            {seabedArea && <path d={seabedArea} fill="url(#sonarSeabedGrad)" />}
 
-            {/* Glowing Hard Return Bottom Line */}
+            {/* Glowing Hard Return Acoustic Seabed Contour Line */}
             {seabedCurve && (
               <>
                 <path
                   d={seabedCurve}
                   fill="none"
-                  stroke="#ef4444"
+                  stroke={seabedColor.primary}
                   strokeWidth="5"
-                  strokeOpacity="0.4"
+                  strokeOpacity="0.45"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
                 <path
                   d={seabedCurve}
                   fill="none"
-                  stroke="#fef08a"
-                  strokeWidth="2.4"
+                  stroke={seabedColor.crest}
+                  strokeWidth="2.2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
@@ -1871,7 +1974,7 @@ function BarChartWidget({
           </div>
 
           <div className="relative flex-1 w-full flex items-center justify-center my-0.5">
-            <div className="absolute top-0 w-3/4 h-2 bg-rose-500/80 rounded-b-xs" />
+            <div className="absolute top-0 w-3/4 h-1.5 bg-slate-700/80 rounded-b-xs" />
 
             <div
               className="absolute inset-x-0 transition-all duration-300 ease-out flex items-center justify-end pr-0.5 -translate-y-1/2"
@@ -1881,9 +1984,10 @@ function BarChartWidget({
             >
               <div className="w-full flex items-center justify-end">
                 <div
-                  className="w-full h-3.5 bg-gradient-to-l from-amber-300 via-rose-500 to-transparent flex items-center justify-end pr-1 shadow-sm"
+                  className="w-full h-3.5 flex items-center justify-end pr-1 shadow-sm transition-all duration-300"
                   style={{
                     clipPath: "polygon(0% 50%, 100% 0%, 100% 100%)",
+                    background: `linear-gradient(to left, ${seabedColor.crest}, ${seabedColor.primary}, transparent)`,
                   }}
                 />
               </div>
@@ -1908,7 +2012,7 @@ function BarChartWidget({
                 ? "bg-rose-600 text-white border-rose-300 shadow-rose-950/80 ring-1 ring-rose-400"
                 : isCaution
                 ? "bg-amber-500 text-slate-950 border-amber-200 shadow-amber-950/80"
-                : "bg-emerald-600 text-white border-emerald-300 shadow-emerald-950/80"
+                : "bg-cyan-600 text-white border-cyan-300 shadow-cyan-950/80"
             }`}
           >
             <span>{rawDepth > 0 ? `${formatNum(rawDepth, decimals)} m` : "—"}</span>
