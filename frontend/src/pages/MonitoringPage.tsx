@@ -3,6 +3,7 @@ import {
   Responsive,
   WidthProvider,
   type Layout,
+  type LayoutItem,
   type ResponsiveLayouts,
 } from "react-grid-layout/legacy"
 import {
@@ -60,7 +61,7 @@ import {
 } from "@/components/common/UI"
 import { useFleet } from "@/state/FleetProvider"
 import { api } from "@/services/api"
-import type { AssetAttribute, Vessel } from "@/domain/types"
+import type { AisTarget, AssetAttribute, Vessel } from "@/domain/types"
 import {
   OpenMapTilesMarineMap,
   type OpenMapTilesTheme,
@@ -185,6 +186,9 @@ export interface WidgetConfig {
   showFilterChips?: boolean
   showStatus?: boolean
   showTimestamp?: boolean
+  mapTheme?: string
+  showRangeRings?: boolean
+  showTrack?: boolean
 }
 
 export interface WidgetDef {
@@ -3647,6 +3651,7 @@ export function MonitoringPage() {
   }
 
   // Dragging State for new widgets
+  const isDraggingRef = useRef(false)
   const [droppingWidget, setDroppingWidget] = useState<{
     type: WidgetType
     title: string
@@ -3722,35 +3727,33 @@ export function MonitoringPage() {
   // Memoized layouts for react-grid-layout to prevent layout thrashing and infinite loops
   const effectiveLayouts = useMemo(() => {
     const rawLayouts = activeSection?.layouts || { lg: [] }
-    const primaryLayout =
+    const primaryLayout = (
       rawLayouts.lg && rawLayouts.lg.length > 0
         ? rawLayouts.lg
         : rawLayouts.md && rawLayouts.md.length > 0
         ? rawLayouts.md
         : []
-
-    const validItems = primaryLayout.filter(
-      (item) => typeof item.y === "number" && !isNaN(item.y) && isFinite(item.y),
+    ).filter(
+      (item) =>
+        item.i !== "__dropping-elem__" &&
+        typeof item.y === "number" &&
+        !isNaN(item.y) &&
+        isFinite(item.y)
     )
-    const minY =
-      validItems.length > 0 ? Math.min(...validItems.map((item) => item.y)) : 0
-
-    const normalizedPrimary =
-      minY > 0 && isFinite(minY)
-        ? validItems.map((item) => ({ ...item, y: Math.max(0, item.y - minY) }))
-        : validItems
 
     return {
       ...rawLayouts,
-      lg: normalizedPrimary,
-      md: normalizedPrimary,
-      sm: normalizedPrimary,
-      xs: (rawLayouts.xs || normalizedPrimary).map((item, i) => ({
-        ...item,
-        x: 0,
-        y: i * 4,
-        w: 1,
-      })),
+      lg: primaryLayout,
+      md: primaryLayout,
+      sm: primaryLayout,
+      xs: (rawLayouts.xs || primaryLayout)
+        .filter((item) => item.i !== "__dropping-elem__")
+        .map((item, i) => ({
+          ...item,
+          x: 0,
+          y: i * 4,
+          w: 1,
+        })),
     } as ResponsiveLayouts
   }, [activeSection?.layouts])
 
@@ -3867,11 +3870,11 @@ export function MonitoringPage() {
   }, [dashboardMode, selectedWidgetId, activeSection.widgets])
 
   // Helper to test equality of 12-col layout arrays
-  function isLayoutEqual(a?: Layout[], b?: Layout[]): boolean {
+  function isLayoutEqual(a?: Layout | LayoutItem[], b?: Layout | LayoutItem[]): boolean {
     if (!a && !b) return true
     if (!a || !b) return false
     if (a.length !== b.length) return false
-    const dictA: Record<string, Layout> = {}
+    const dictA: Record<string, LayoutItem> = {}
     for (const item of a) {
       dictA[item.i] = item
     }
@@ -3890,12 +3893,62 @@ export function MonitoringPage() {
     return true
   }
 
+  // Helper to test if two layout items overlap
+  function doesOverlap(a: LayoutItem, b: LayoutItem): boolean {
+    return (
+      a.x < b.x + b.w &&
+      a.x + a.w > b.x &&
+      a.y < b.y + b.h &&
+      a.y + a.h > b.y
+    )
+  }
+
+  // Resolve collisions by pushing overlapping widgets and downstream widgets downward cleanly
+  function resolveCollisions(
+    existing: (LayoutItem | Layout[number])[],
+    newItem: LayoutItem,
+    cols: number = 12
+  ): LayoutItem[] {
+    const clampedX = Math.max(0, Math.min(Math.round(newItem.x ?? 0), cols - newItem.w))
+    const clampedY = Math.max(0, Math.round(newItem.y ?? 0))
+    const placedNew: LayoutItem = {
+      ...newItem,
+      x: clampedX,
+      y: clampedY,
+    }
+
+    const items = existing
+      .filter((it) => it.i !== newItem.i && it.i !== "__dropping-elem__")
+      .map((it) => ({ ...it }))
+      .sort((a, b) => a.y - b.y || a.x - b.x)
+
+    const placed: LayoutItem[] = [placedNew]
+
+    for (const item of items) {
+      let hasCollision = true
+      let safetyCounter = 0
+      while (hasCollision && safetyCounter < 100) {
+        safetyCounter++
+        hasCollision = false
+        for (const p of placed) {
+          if (doesOverlap(item, p)) {
+            item.y = p.y + p.h
+            hasCollision = true
+            break
+          }
+        }
+      }
+      placed.push(item)
+    }
+
+    return placed
+  }
+
   // Direct drop handler from right sidebar onto canvas
   function handleDrop(
-    layout: Layout[],
-    layoutItem: { x: number; y: number; w: number; h: number }
+    layoutItem?: { x: number; y: number; w?: number; h?: number }
   ) {
-    if (dashboardMode !== "modify") return
+    if (dashboardMode !== "modify" || !layoutItem) return
     const id = `${droppingWidget.type}-${Date.now()}`
     const targetVesselId = droppingWidget.vesselId || vessels[0]?.id || ""
     const meta = VESSEL_ATTRIBUTES.find((a) => a.key === droppingWidget.attributeKey)
@@ -3909,46 +3962,33 @@ export function MonitoringPage() {
       ...(droppingWidget.type === "heading" ? { secondaryAttributeKey: "cog" } : {}),
       config: {
         min: 0,
-        max: droppingWidget.attributeKey === "rpm" ? 3000 : (droppingWidget.attributeKey === "fuel" || droppingWidget.attributeKey === "engineLoad" ? 100 : 24),
-        decimals: droppingWidget.attributeKey === "rpm" || droppingWidget.attributeKey === "fuel" ? 0 : 1,
+        max:
+          droppingWidget.attributeKey === "rpm"
+            ? 3000
+            : droppingWidget.attributeKey === "fuel" || droppingWidget.attributeKey === "engineLoad"
+            ? 100
+            : 24,
+        decimals:
+          droppingWidget.attributeKey === "rpm" || droppingWidget.attributeKey === "fuel" ? 0 : 1,
         unit: meta?.unit || "",
         thresholds: { green: 0, orange: 25, red: 80 },
       },
     }
 
-    // In react-grid-layout, layout parameter has already resolved collisions for existing widgets
-    // and holds the placeholder item '__dropping-elem__'.
-    let updated12Col: Layout[] = []
-    const hasDroppingElem = Array.isArray(layout) && layout.some((it) => it.i === "__dropping-elem__")
-
-    if (hasDroppingElem) {
-      updated12Col = layout.map((item) => {
-        if (item.i === "__dropping-elem__") {
-          return {
-            i: id,
-            x: item.x,
-            y: item.y,
-            w: item.w || droppingWidget.w,
-            h: item.h || droppingWidget.h,
-            minW: 2,
-            minH: 2,
-          }
-        }
-        return item
-      })
-    } else {
-      const currentLayouts = activeSection.layouts?.lg || []
-      const newItem: Layout = {
-        i: id,
-        x: layoutItem.x,
-        y: layoutItem.y,
-        w: layoutItem.w || droppingWidget.w,
-        h: layoutItem.h || droppingWidget.h,
-        minW: 2,
-        minH: 2,
-      }
-      updated12Col = [...currentLayouts, newItem]
+    const currentLayouts = (activeSection.layouts?.lg || []).filter(
+      (it) => it.i !== "__dropping-elem__"
+    )
+    const newItem: LayoutItem = {
+      i: id,
+      x: layoutItem.x ?? 0,
+      y: layoutItem.y ?? 0,
+      w: layoutItem.w || droppingWidget.w,
+      h: layoutItem.h || droppingWidget.h,
+      minW: 2,
+      minH: 2,
     }
+
+    const updated12Col = resolveCollisions(currentLayouts, newItem, 12)
 
     setSections((prev) =>
       prev.map((sec) => {
@@ -3964,7 +4004,7 @@ export function MonitoringPage() {
             xs: updated12Col.map((item, i) => ({ ...item, x: 0, y: i * 4, w: 1 })),
           },
         }
-      }),
+      })
     )
 
     setSelectedWidgetId(id)
@@ -3978,14 +4018,16 @@ export function MonitoringPage() {
     const meta = VESSEL_ATTRIBUTES.find((a) => a.key === palette.attributeKey)
 
     // Calculate next Y position below all existing widgets to prevent any overlapping
-    const currentLg = activeSection.layouts?.lg || []
+    const currentLg = (activeSection.layouts?.lg || []).filter(
+      (it) => it.i !== "__dropping-elem__"
+    )
     let nextY = 0
     for (const item of currentLg) {
       const bottom = (item.y || 0) + (item.h || 0)
       if (bottom > nextY) nextY = bottom
     }
 
-    const newItem: Layout = {
+    const newItem: LayoutItem = {
       i: id,
       x: 0,
       y: nextY,
@@ -4004,14 +4046,19 @@ export function MonitoringPage() {
       ...(palette.type === "heading" ? { secondaryAttributeKey: "cog" } : {}),
       config: {
         min: 0,
-        max: palette.attributeKey === "rpm" ? 3000 : (palette.attributeKey === "fuel" || palette.attributeKey === "engineLoad" ? 100 : 24),
+        max:
+          palette.attributeKey === "rpm"
+            ? 3000
+            : palette.attributeKey === "fuel" || palette.attributeKey === "engineLoad"
+            ? 100
+            : 24,
         decimals: palette.attributeKey === "rpm" || palette.attributeKey === "fuel" ? 0 : 1,
         unit: meta?.unit || "",
         thresholds: { green: 0, orange: 25, red: 80 },
       },
     }
 
-    const updatedLg = [...currentLg, newItem]
+    const updatedLg = resolveCollisions(currentLg, newItem, 12)
 
     setSections((prev) =>
       prev.map((sec) => {
@@ -4027,7 +4074,7 @@ export function MonitoringPage() {
             xs: updatedLg.map((item, i) => ({ ...item, x: 0, y: i * 4, w: 1 })),
           },
         }
-      }),
+      })
     )
 
     setSelectedWidgetId(id)
@@ -4168,7 +4215,7 @@ export function MonitoringPage() {
           layouts: Object.fromEntries(
             Object.entries(currentLayouts).map(([bp, items]) => [
               bp,
-              (items as Layout[]).filter((item) => item.i !== widgetId),
+              (items as readonly LayoutItem[]).filter((item) => item.i !== widgetId),
             ]),
           ) as ResponsiveLayouts,
         }
@@ -4179,14 +4226,49 @@ export function MonitoringPage() {
     }
   }
 
-  // Handle grid layout update
-  function handleLayoutChange(_layout: Layout[], allLayouts: ResponsiveLayouts) {
+  // Commit layout changes when drag/resize action completes
+  function handleCommitLayout(newLayout: Layout | LayoutItem[]) {
     if (dashboardMode !== "modify") return
-    const current12Col = allLayouts.lg || allLayouts.md || allLayouts.sm || _layout
-    if (!current12Col || current12Col.length === 0) return
+    if (!Array.isArray(newLayout) || newLayout.length === 0) return
+    const clean12Col: LayoutItem[] = newLayout
+      .filter((it) => it.i !== "__dropping-elem__")
+      .map((it) => ({ ...it }))
+    const currentActiveLg = (activeSection.layouts?.lg || []).filter(
+      (it) => it.i !== "__dropping-elem__"
+    )
+    if (isLayoutEqual(currentActiveLg, clean12Col)) {
+      return
+    }
 
-    // Prevent infinite state loops: only update state if coordinates or dimensions actually changed
-    const currentActiveLg = activeSection.layouts?.lg || []
+    const syncedLayouts: ResponsiveLayouts = {
+      ...(activeSection.layouts || {}),
+      lg: clean12Col,
+      md: clean12Col,
+      sm: clean12Col,
+      xs: clean12Col.map((item, i) => ({ ...item, x: 0, y: i * 4, w: 1 })),
+    }
+    setSections((prev) =>
+      prev.map((sec) =>
+        sec.id === activeSection.id ? { ...sec, layouts: syncedLayouts } : sec
+      )
+    )
+  }
+
+  // Handle grid layout update from responsive breakpoint changes
+  function handleLayoutChange(_layout: Layout, allLayouts: ResponsiveLayouts) {
+    if (dashboardMode !== "modify") return
+    if (isDraggingRef.current) return
+    const raw12Col = allLayouts.lg || allLayouts.md || allLayouts.sm || _layout
+    if (!raw12Col || raw12Col.length === 0) return
+    // Never update state while an external item is hovering over the canvas
+    if (raw12Col.some((it) => it.i === "__dropping-elem__")) return
+
+    const current12Col: LayoutItem[] = raw12Col
+      .filter((it) => it.i !== "__dropping-elem__")
+      .map((it) => ({ ...it }))
+    const currentActiveLg = (activeSection.layouts?.lg || []).filter(
+      (it) => it.i !== "__dropping-elem__"
+    )
     if (isLayoutEqual(currentActiveLg, current12Col)) {
       return
     }
@@ -4196,12 +4278,14 @@ export function MonitoringPage() {
       lg: current12Col,
       md: current12Col,
       sm: current12Col,
-      xs: (allLayouts.xs || current12Col).map((item, i) => ({ ...item, x: 0, y: i * 4, w: 1 })),
+      xs: (allLayouts.xs || current12Col)
+        .filter((it) => it.i !== "__dropping-elem__")
+        .map((item, i) => ({ ...item, x: 0, y: i * 4, w: 1 })),
     }
     setSections((prev) =>
       prev.map((sec) =>
-        sec.id === activeSection.id ? { ...sec, layouts: syncedLayouts } : sec,
-      ),
+        sec.id === activeSection.id ? { ...sec, layouts: syncedLayouts } : sec
+      )
     )
   }
 
@@ -4669,10 +4753,24 @@ export function MonitoringPage() {
                   isDroppable={dashboardMode === "modify"}
                   droppingItem={{
                     i: "__dropping-elem__",
+                    x: 0,
+                    y: 0,
                     w: droppingWidget.w,
                     h: droppingWidget.h,
                   }}
-                  onDrop={(layout, layoutItem) => handleDrop(layout, layoutItem)}
+                  onDragStart={() => {
+                    isDraggingRef.current = true
+                  }}
+                  onDragStop={(layout) => {
+                    isDraggingRef.current = false
+                    handleCommitLayout(layout)
+                  }}
+                  onResizeStop={(layout) => {
+                    handleCommitLayout(layout)
+                  }}
+                  onDrop={(_layout, layoutItem) => {
+                    if (layoutItem) handleDrop(layoutItem)
+                  }}
                   onLayoutChange={handleLayoutChange}
                   draggableHandle=".widget-handle"
                 >
