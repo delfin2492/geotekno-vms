@@ -3871,9 +3871,12 @@ export function MonitoringPage() {
     if (!a && !b) return true
     if (!a || !b) return false
     if (a.length !== b.length) return false
-    const mapA = new Map(a.map((item) => [item.i, item]))
+    const dictA: Record<string, Layout> = {}
+    for (const item of a) {
+      dictA[item.i] = item
+    }
     for (const itemB of b) {
-      const itemA = mapA.get(itemB.i)
+      const itemA = dictA[itemB.i]
       if (!itemA) return false
       if (
         itemA.x !== itemB.x ||
