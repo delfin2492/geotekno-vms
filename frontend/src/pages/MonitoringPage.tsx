@@ -3602,11 +3602,6 @@ export function MonitoringPage() {
     return () => clearTimeout(timer)
   }, [dashboardMode])
 
-  function handleSwitchToViewMode() {
-    setSelectedWidgetId(null)
-    setDashboardMode("view")
-  }
-
   function handleSwitchToModifyMode() {
     setDashboardMode("modify")
   }
@@ -3724,6 +3719,41 @@ export function MonitoringPage() {
   const activeSection =
     sections.find((s) => s.id === activeSectionId) ?? sections[0] ?? defaultSections[0]
 
+  // Memoized layouts for react-grid-layout to prevent layout thrashing and infinite loops
+  const effectiveLayouts = useMemo(() => {
+    const rawLayouts = activeSection?.layouts || { lg: [] }
+    const primaryLayout =
+      rawLayouts.lg && rawLayouts.lg.length > 0
+        ? rawLayouts.lg
+        : rawLayouts.md && rawLayouts.md.length > 0
+        ? rawLayouts.md
+        : []
+
+    const validItems = primaryLayout.filter(
+      (item) => typeof item.y === "number" && !isNaN(item.y) && isFinite(item.y),
+    )
+    const minY =
+      validItems.length > 0 ? Math.min(...validItems.map((item) => item.y)) : 0
+
+    const normalizedPrimary =
+      minY > 0 && isFinite(minY)
+        ? validItems.map((item) => ({ ...item, y: Math.max(0, item.y - minY) }))
+        : validItems
+
+    return {
+      ...rawLayouts,
+      lg: normalizedPrimary,
+      md: normalizedPrimary,
+      sm: normalizedPrimary,
+      xs: (rawLayouts.xs || normalizedPrimary).map((item, i) => ({
+        ...item,
+        x: 0,
+        y: i * 4,
+        w: 1,
+      })),
+    } as ResponsiveLayouts
+  }, [activeSection?.layouts])
+
   // Currently selected widget object in active section
   const selectedWidget = useMemo(() => {
     if (!selectedWidgetId) return null
@@ -3836,8 +3866,32 @@ export function MonitoringPage() {
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [dashboardMode, selectedWidgetId, activeSection.widgets])
 
+  // Helper to test equality of 12-col layout arrays
+  function isLayoutEqual(a?: Layout[], b?: Layout[]): boolean {
+    if (!a && !b) return true
+    if (!a || !b) return false
+    if (a.length !== b.length) return false
+    const mapA = new Map(a.map((item) => [item.i, item]))
+    for (const itemB of b) {
+      const itemA = mapA.get(itemB.i)
+      if (!itemA) return false
+      if (
+        itemA.x !== itemB.x ||
+        itemA.y !== itemB.y ||
+        itemA.w !== itemB.w ||
+        itemA.h !== itemB.h
+      ) {
+        return false
+      }
+    }
+    return true
+  }
+
   // Direct drop handler from right sidebar onto canvas
-  function handleDrop(layoutItem: { x: number; y: number; w: number; h: number }) {
+  function handleDrop(
+    layout: Layout[],
+    layoutItem: { x: number; y: number; w: number; h: number }
+  ) {
     if (dashboardMode !== "modify") return
     const id = `${droppingWidget.type}-${Date.now()}`
     const targetVesselId = droppingWidget.vesselId || vessels[0]?.id || ""
@@ -3859,30 +3913,53 @@ export function MonitoringPage() {
       },
     }
 
-    const newItem: Layout = {
-      i: id,
-      x: layoutItem.x,
-      y: layoutItem.y,
-      w: layoutItem.w || droppingWidget.w,
-      h: layoutItem.h || droppingWidget.h,
-      minW: 2,
-      minH: 2,
+    // In react-grid-layout, layout parameter has already resolved collisions for existing widgets
+    // and holds the placeholder item '__dropping-elem__'.
+    let updated12Col: Layout[] = []
+    const hasDroppingElem = Array.isArray(layout) && layout.some((it) => it.i === "__dropping-elem__")
+
+    if (hasDroppingElem) {
+      updated12Col = layout.map((item) => {
+        if (item.i === "__dropping-elem__") {
+          return {
+            i: id,
+            x: item.x,
+            y: item.y,
+            w: item.w || droppingWidget.w,
+            h: item.h || droppingWidget.h,
+            minW: 2,
+            minH: 2,
+          }
+        }
+        return item
+      })
+    } else {
+      const currentLayouts = activeSection.layouts?.lg || []
+      const newItem: Layout = {
+        i: id,
+        x: layoutItem.x,
+        y: layoutItem.y,
+        w: layoutItem.w || droppingWidget.w,
+        h: layoutItem.h || droppingWidget.h,
+        minW: 2,
+        minH: 2,
+      }
+      updated12Col = [...currentLayouts, newItem]
     }
 
     setSections((prev) =>
       prev.map((sec) => {
         if (sec.id !== activeSection.id) return sec
         const currentWidgets = sec.widgets || []
-        const currentLayouts = sec.layouts || { lg: [] }
         return {
           ...sec,
           widgets: [...currentWidgets, newWidget],
-          layouts: Object.fromEntries(
-            ["lg", "md", "sm", "xs"].map((bp) => [
-              bp,
-              [...((currentLayouts as any)[bp] || []), newItem],
-            ]),
-          ) as ResponsiveLayouts,
+          layouts: {
+            lg: updated12Col,
+            md: updated12Col,
+            sm: updated12Col,
+            xs: updated12Col.map((item, i) => ({ ...item, x: 0, y: i * 4, w: 1 })),
+          },
         }
       }),
     )
@@ -3897,10 +3974,18 @@ export function MonitoringPage() {
     const id = `${palette.type}-${Date.now()}`
     const meta = VESSEL_ATTRIBUTES.find((a) => a.key === palette.attributeKey)
 
+    // Calculate next Y position below all existing widgets to prevent any overlapping
+    const currentLg = activeSection.layouts?.lg || []
+    let nextY = 0
+    for (const item of currentLg) {
+      const bottom = (item.y || 0) + (item.h || 0)
+      if (bottom > nextY) nextY = bottom
+    }
+
     const newItem: Layout = {
       i: id,
       x: 0,
-      y: Infinity,
+      y: nextY,
       w: palette.defaultW,
       h: palette.defaultH,
       minW: 2,
@@ -3923,20 +4008,21 @@ export function MonitoringPage() {
       },
     }
 
+    const updatedLg = [...currentLg, newItem]
+
     setSections((prev) =>
       prev.map((sec) => {
         if (sec.id !== activeSection.id) return sec
         const currentWidgets = sec.widgets || []
-        const currentLayouts = sec.layouts || { lg: [] }
         return {
           ...sec,
           widgets: [...currentWidgets, newWidget],
-          layouts: Object.fromEntries(
-            ["lg", "md", "sm", "xs"].map((bp) => [
-              bp,
-              [...((currentLayouts as any)[bp] || []), newItem],
-            ]),
-          ) as ResponsiveLayouts,
+          layouts: {
+            lg: updatedLg,
+            md: updatedLg,
+            sm: updatedLg,
+            xs: updatedLg.map((item, i) => ({ ...item, x: 0, y: i * 4, w: 1 })),
+          },
         }
       }),
     )
@@ -4094,6 +4180,14 @@ export function MonitoringPage() {
   function handleLayoutChange(_layout: Layout[], allLayouts: ResponsiveLayouts) {
     if (dashboardMode !== "modify") return
     const current12Col = allLayouts.lg || allLayouts.md || allLayouts.sm || _layout
+    if (!current12Col || current12Col.length === 0) return
+
+    // Prevent infinite state loops: only update state if coordinates or dimensions actually changed
+    const currentActiveLg = activeSection.layouts?.lg || []
+    if (isLayoutEqual(currentActiveLg, current12Col)) {
+      return
+    }
+
     const syncedLayouts: ResponsiveLayouts = {
       ...allLayouts,
       lg: current12Col,
@@ -4557,25 +4651,7 @@ export function MonitoringPage() {
                   )}
                 </p>
               </div>
-            ) : (() => {
-              const rawLayouts = activeSection.layouts || { lg: [] }
-              const primaryLayout = rawLayouts.lg && rawLayouts.lg.length > 0 ? rawLayouts.lg : rawLayouts.md || []
-
-              // Normalisasi koordinat y: cegah offset kosong di bagian atas canvas
-              const minY = primaryLayout.length > 0
-                ? Math.min(...primaryLayout.map((item) => (typeof item.y === "number" ? item.y : 0)))
-                : 0
-              const normalizedPrimary = minY > 0
-                ? primaryLayout.map((item) => ({ ...item, y: Math.max(0, item.y - minY) }))
-                : primaryLayout
-
-              const effectiveLayouts: ResponsiveLayouts = {
-                ...rawLayouts,
-                lg: normalizedPrimary,
-                md: normalizedPrimary,
-                sm: normalizedPrimary,
-              }
-              return (
+            ) : (
                 <ResponsiveGrid
                   className="layout"
                   layouts={effectiveLayouts}
@@ -4593,7 +4669,7 @@ export function MonitoringPage() {
                     w: droppingWidget.w,
                     h: droppingWidget.h,
                   }}
-                  onDrop={(_layout, layoutItem) => handleDrop(layoutItem)}
+                  onDrop={(layout, layoutItem) => handleDrop(layout, layoutItem)}
                   onLayoutChange={handleLayoutChange}
                   draggableHandle=".widget-handle"
                 >
@@ -4675,8 +4751,7 @@ export function MonitoringPage() {
                     )
                   })}
                 </ResponsiveGrid>
-              )
-            })()}
+              )}
           </div>
         </div>
 
