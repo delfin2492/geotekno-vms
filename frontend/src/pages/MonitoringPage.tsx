@@ -1628,10 +1628,6 @@ function BarChartWidget({
   const minDepth = typeof config?.min === "number" ? config.min : 0
   const range = Math.max(5, maxDepth - minDepth)
 
-  // Under-Keel Clearance
-  const estimatedDraft = 2.2
-  const ukc = rawDepth > estimatedDraft ? rawDepth - estimatedDraft : 0
-
   // Safety thresholds
   const isShallow = rawDepth > 0 && rawDepth < 5
   const isCaution = rawDepth >= 5 && rawDepth < 10
@@ -1744,16 +1740,13 @@ function BarChartWidget({
     ? `${seabedCurve} L ${svgW},${svgH} L 0,${svgH} Z`
     : ""
 
-  // Water Temperature (from sensor or standard default)
+  // Water Temperature (from sensor if present)
   const rawWaterTemp = (vessel as any)?.waterTemp ?? (vessel as any)?.water_temp_c
-  const waterTempDisplay =
-    typeof rawWaterTemp === "number" && !isNaN(rawWaterTemp)
-      ? `${rawWaterTemp.toFixed(1)}°C`
-      : "28.5°C"
+  const hasWaterTemp = typeof rawWaterTemp === "number" && !isNaN(rawWaterTemp)
 
   return (
     <div className="flex h-full w-full flex-col justify-between select-none py-0.5 overflow-hidden">
-      {/* 1. Garmin CHIRP Header: Large Readout, Sonar Frequency & Shallow Alert */}
+      {/* 1. Header: Big Numerical Readout, Water Temp (if available), Shallow Status Badge */}
       <div className="flex items-center justify-between pb-1 border-b border-slate-100 shrink-0">
         <div className="flex items-baseline gap-1.5 min-w-0">
           <span className={`tabular-nums tracking-tight text-slate-900 ${heroValClass}`}>
@@ -1762,21 +1755,15 @@ function BarChartWidget({
           <span className={`font-extrabold text-slate-500 uppercase ${isLarge ? "text-base" : isSmall ? "text-xs" : "text-sm"}`}>
             {unit}
           </span>
-          <div className="hidden sm:flex items-center gap-1.5 ml-2">
-            <span className="px-1.5 py-0.5 rounded bg-slate-900 text-[9px] font-black tracking-wider text-amber-400 border border-amber-400/30">
-              CHIRP HIGH
-            </span>
-            <span className="text-[10px] font-mono font-bold text-slate-400">
-              150–240 kHz
-            </span>
-          </div>
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          <div className="hidden md:flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-[10px] font-bold text-slate-600 border border-slate-200">
-            <Thermometer className="h-3 w-3 text-sky-500" />
-            <span>{waterTempDisplay}</span>
-          </div>
+          {hasWaterTemp && (
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-[10px] font-bold text-slate-600 border border-slate-200">
+              <Thermometer className="h-3 w-3 text-sky-500" />
+              <span>{rawWaterTemp.toFixed(1)}°C</span>
+            </div>
+          )}
 
           <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border shadow-2xs ${statusColor}`}>
             <span className={`h-2 w-2 rounded-full ${isShallow ? "bg-rose-500 animate-pulse" : isCaution ? "bg-amber-500" : isSafe ? "bg-emerald-500" : "bg-slate-400"}`} />
@@ -1785,8 +1772,8 @@ function BarChartWidget({
         </div>
       </div>
 
-      {/* 2. Main CHIRP Echosounder Display: Ruler + Echogram Waterfall + A-Scope */}
-      <div className="relative flex-1 my-1 rounded-2xl overflow-hidden border border-slate-800 shadow-lg flex bg-[#030712] min-h-[96px]">
+      {/* 2. Main Clean CHIRP Echosounder Display */}
+      <div className="relative flex-1 my-1 rounded-2xl overflow-hidden border border-slate-800 shadow-md flex bg-[#030712] min-h-[96px]">
         {/* Left: Graduated Sonar Depth Ruler */}
         <div className={`relative bg-slate-950/90 border-r border-slate-800/80 flex flex-col justify-between py-2 text-right shrink-0 select-none z-20 ${rulerWidthClass}`}>
           {/* Risk Zone Color Bar */}
@@ -1806,7 +1793,7 @@ function BarChartWidget({
           ))}
         </div>
 
-        {/* Center: Real-Time Scrolling CHIRP Echogram */}
+        {/* Center: Real-Time Scrolling CHIRP Echogram Canvas */}
         <div className="relative flex-1 overflow-hidden bg-[#030712] flex flex-col justify-between">
           {/* Surface Transducer Transmission Pulse (Near-Field Clutter at 0m) */}
           <div className="absolute top-0 inset-x-0 h-2 bg-gradient-to-b from-[#ef4444] via-[#f59e0b] to-transparent opacity-80 z-20 pointer-events-none" />
@@ -1844,15 +1831,15 @@ function BarChartWidget({
             {/* Surface Pulse Ring */}
             <rect x="0" y="0" width={svgW} height="6" fill="url(#surfaceSonarPulse)" />
 
-            {/* Faint Floating Sonar Water Particles (Fish / Thermocline Acoustic Returns) */}
-            <circle cx={svgW * 0.28} cy={Math.max(16, currentDepthY * 0.55)} r="1.5" fill="#38bdf8" opacity="0.4" />
-            <circle cx={svgW * 0.52} cy={Math.max(20, currentDepthY * 0.72)} r="1.8" fill="#38bdf8" opacity="0.35" />
-            <circle cx={svgW * 0.74} cy={Math.max(14, currentDepthY * 0.45)} r="1.2" fill="#38bdf8" opacity="0.5" />
+            {/* Faint Floating Sonar Water Particles */}
+            <circle cx={svgW * 0.28} cy={Math.max(16, currentDepthY * 0.55)} r="1.5" fill="#38bdf8" opacity="0.35" />
+            <circle cx={svgW * 0.52} cy={Math.max(20, currentDepthY * 0.72)} r="1.8" fill="#38bdf8" opacity="0.3" />
+            <circle cx={svgW * 0.74} cy={Math.max(14, currentDepthY * 0.45)} r="1.2" fill="#38bdf8" opacity="0.4" />
 
             {/* Multi-Layered CHIRP Seabed Area Fill */}
             {seabedArea && <path d={seabedArea} fill="url(#chirpSeabedGrad)" />}
 
-            {/* Glowing Hard Return Bottom Line (Yellow / Orange Crest) */}
+            {/* Glowing Hard Return Bottom Line */}
             {seabedCurve && (
               <>
                 <path
@@ -1875,45 +1862,17 @@ function BarChartWidget({
               </>
             )}
           </svg>
-
-          {/* Top Keel Badge & Echosounder Mode Info */}
-          <div className="relative z-20 flex items-center justify-between px-2.5 pt-1.5 pointer-events-none">
-            <div className="flex items-center gap-1.5 bg-slate-900/90 text-cyan-200 px-2 py-0.5 rounded border border-cyan-500/30 text-[9px] font-bold shadow-xs backdrop-blur-xs">
-              <Ship className="h-3 w-3 text-cyan-300" />
-              <span>KEEL 0M</span>
-            </div>
-
-            <div className="text-[8px] font-mono font-bold tracking-widest text-slate-500 uppercase">
-              ECHOMAP CHIRP
-            </div>
-          </div>
-
-          {/* Bottom Seabed Acoustic Return Tag */}
-          <div className="relative z-20 flex items-center justify-between px-2.5 pb-1.5 pointer-events-none mt-auto">
-            <div className="flex items-center gap-1.5 text-[8.5px] font-black uppercase tracking-wider text-amber-300/80">
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-              <span>CHIRP SEABED RETURN</span>
-            </div>
-
-            <div className="text-[8.5px] font-mono font-bold text-slate-500">
-              WATERFALL SCROLL &larr;
-            </div>
-          </div>
         </div>
 
         {/* Right: Garmin Signature A-Scope (Real-time Acoustic Amplitude Flasher) */}
-        <div className="relative w-8 bg-slate-950 border-l border-slate-800 flex flex-col justify-between shrink-0 select-none z-20 overflow-hidden">
-          {/* Header */}
+        <div className="relative w-7 bg-slate-950 border-l border-slate-800 flex flex-col justify-between shrink-0 select-none z-20 overflow-hidden">
           <div className="text-center pt-1 text-[7px] font-mono font-black text-slate-500 tracking-tighter">
             A-SCOPE
           </div>
 
-          {/* A-Scope Ultrasonic Flasher Pulse */}
           <div className="relative flex-1 w-full flex items-center justify-center my-0.5">
-            {/* Top surface clutter pulse */}
             <div className="absolute top-0 w-3/4 h-2 bg-rose-500/80 rounded-b-xs" />
 
-            {/* Instant Seabed Acoustic Amplitude Spike at current depth */}
             <div
               className="absolute inset-x-0 transition-all duration-300 ease-out flex items-center justify-end pr-0.5 -translate-y-1/2"
               style={{
@@ -1921,9 +1880,8 @@ function BarChartWidget({
               }}
             >
               <div className="w-full flex items-center justify-end">
-                {/* Triangular amplitude spike */}
                 <div
-                  className="w-full h-3.5 bg-gradient-to-l from-amber-300 via-rose-500 to-transparent clip-path-polygon flex items-center justify-end pr-1 shadow-sm"
+                  className="w-full h-3.5 bg-gradient-to-l from-amber-300 via-rose-500 to-transparent flex items-center justify-end pr-1 shadow-sm"
                   style={{
                     clipPath: "polygon(0% 50%, 100% 0%, 100% 100%)",
                   }}
@@ -1932,7 +1890,6 @@ function BarChartWidget({
             </div>
           </div>
 
-          {/* Bottom Indicator */}
           <div className="text-center pb-1 text-[7px] font-mono font-bold text-slate-600">
             FLSH
           </div>
@@ -1940,7 +1897,7 @@ function BarChartWidget({
 
         {/* Floating Digital Depth Marker Tag (Snapping right to current seabed level) */}
         <div
-          className="absolute right-10 z-30 transition-all duration-500 -translate-y-1/2"
+          className="absolute right-9 z-30 transition-all duration-500 -translate-y-1/2"
           style={{
             top: `${rawDepth > 0 ? Math.min(88, Math.max(12, ((rawDepth - minDepth) / range) * 100)) : 50}%`,
           }}
@@ -1956,23 +1913,6 @@ function BarChartWidget({
           >
             <span>{rawDepth > 0 ? `${formatNum(rawDepth, decimals)} m` : "—"}</span>
           </div>
-        </div>
-      </div>
-
-      {/* 3. Bottom Operational Benchmarks: UKC Clearance & Dynamic Scale */}
-      <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[10px]">
-        <div className="flex items-center gap-1.5">
-          <span className="text-slate-400 font-semibold">UKC Clearance:</span>
-          <span className={`font-bold tabular-nums text-xs ${isShallow ? "text-rose-600 font-black" : "text-slate-800 font-bold"}`}>
-            {rawDepth > 0 ? `${formatNum(ukc, 1)} m` : "—"}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-slate-400 font-semibold">Sonar:</span>
-          <span className="text-slate-700 font-bold font-mono">CHIRP High</span>
-          <span className="text-slate-300">•</span>
-          <span className="text-slate-400 font-semibold">Scale:</span>
-          <span className="text-slate-700 font-bold font-mono">0–{maxDepth}m</span>
         </div>
       </div>
     </div>
@@ -4801,7 +4741,7 @@ export function MonitoringPage() {
 
                         {!collapsedInspectorSections.values && (
                           <div>
-                            {selectedWidget.type !== "telemetry" && selectedWidget.type !== "chart" && (
+                            {selectedWidget.type !== "telemetry" && selectedWidget.type !== "chart" && selectedWidget.type !== "bar" && (
                               <div className="grid grid-cols-2 gap-2.5 mb-2.5">
                                 <div>
                                   <label className="block text-[10px] font-bold text-slate-600 mb-1">
