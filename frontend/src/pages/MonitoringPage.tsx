@@ -1620,7 +1620,7 @@ function BarChartWidget({
   const rawDepth = vessel.depth !== undefined && vessel.depth !== null ? vessel.depth : 0
   const unit = config?.unit || "m"
 
-  // Scale max selection: Flexible based on incoming payload (+10m headroom, rounded cleanly for 4 scale ticks)
+  // Flexible max depth based on incoming payload (+10m headroom, rounded cleanly for 4 scale ticks)
   const configuredMax = typeof config?.max === "number" && config.max > 0 ? config.max : null
   const dynamicMax = Math.max(10, Math.ceil((rawDepth + 10) / 4) * 4)
   const maxDepth = configuredMax ?? dynamicMax
@@ -1628,11 +1628,9 @@ function BarChartWidget({
   const minDepth = typeof config?.min === "number" ? config.min : 0
   const range = Math.max(5, maxDepth - minDepth)
 
-  // Seabed vertical position percentage from surface (14% to 88% range)
-  const depthPct =
-    rawDepth > 0
-      ? Math.min(88, Math.max(14, ((rawDepth - minDepth) / range) * 100))
-      : 14
+  // Under-Keel Clearance
+  const estimatedDraft = 2.2
+  const ukc = rawDepth > estimatedDraft ? rawDepth - estimatedDraft : 0
 
   // Safety thresholds
   const isShallow = rawDepth > 0 && rawDepth < 5
@@ -1655,10 +1653,6 @@ function BarChartWidget({
     ? "Safe Depth (>10m)"
     : "No Echo Signal"
 
-  // Under-Keel Clearance
-  const estimatedDraft = 2.2
-  const ukc = rawDepth > estimatedDraft ? rawDepth - estimatedDraft : 0
-
   // 5 scale ticks across the depth range
   const tickSteps = 4
   const ticks = Array.from({ length: tickSteps + 1 }, (_, i) => {
@@ -1671,163 +1665,301 @@ function BarChartWidget({
   const shallowLimitPct = Math.min(100, Math.max(0, (5 / range) * 100))
   const cautionLimitPct = Math.min(100, Math.max(0, (10 / range) * 100))
 
+  // Real-time Scrolling Historical Depth Buffer (Garmin CHIRP Waterfall Echogram)
+  const sliceCount = 36
+  const [sonarHistory, setSonarHistory] = useState<number[]>(() => {
+    const arr: number[] = []
+    const base = rawDepth > 0 ? rawDepth : 0
+    for (let i = 0; i < sliceCount; i++) {
+      const variance = base > 0 ? Math.sin(i * 0.45) * 0.08 : 0
+      arr.push(Math.max(0, Number((base + variance).toFixed(2))))
+    }
+    return arr
+  })
+
+  const lastUpdateRef = useRef<string | number | undefined>(vessel.updatedAt)
+  const lastDepthRef = useRef<number>(rawDepth)
+
+  useEffect(() => {
+    const isNewPacket = vessel.updatedAt && vessel.updatedAt !== lastUpdateRef.current
+    const isDepthChanged = rawDepth !== lastDepthRef.current
+
+    if (isNewPacket || isDepthChanged) {
+      lastUpdateRef.current = vessel.updatedAt
+      lastDepthRef.current = rawDepth
+      setSonarHistory((prev) => [...prev.slice(1), rawDepth])
+    }
+  }, [vessel.updatedAt, rawDepth])
+
   // Adaptive scale tiers
   const isLarge = width >= 420 || height >= 220
   const isSmall = width < 250 || height < 140
 
   const heroValClass = isLarge ? "text-4xl lg:text-5xl font-black" : isSmall ? "text-2xl font-bold" : "text-3xl font-black"
-  const rulerWidthClass = isLarge ? "w-16 pr-2.5" : isSmall ? "w-11 pr-1.5" : "w-13 pr-2"
-  const tickFontClass = isLarge ? "text-xs font-mono font-bold" : isSmall ? "text-[8px] font-mono font-semibold" : "text-[10px] font-mono font-bold"
+  const rulerWidthClass = isLarge ? "w-14 pr-2" : isSmall ? "w-10 pr-1" : "w-12 pr-1.5"
+  const tickFontClass = isLarge ? "text-[11px] font-mono font-bold" : isSmall ? "text-[8px] font-mono font-semibold" : "text-[9.5px] font-mono font-bold"
+
+  // SVG Geometry for Sonar Echogram
+  const svgW = 320
+  const svgH = 140
+  const padTop = 10
+  const drawH = svgH - padTop
+
+  // Normalized Current Depth Y position
+  const currentDepthY =
+    rawDepth > 0
+      ? padTop + Math.min(drawH * 0.94, Math.max(4, ((rawDepth - minDepth) / range) * drawH))
+      : padTop + drawH * 0.5
+
+  // Map historical depth points to SVG coordinates
+  const echogramPoints = sonarHistory.map((d, i) => {
+    const x = (i / (sliceCount - 1)) * svgW
+    const normalized = d > 0 ? ((d - minDepth) / range) * drawH : drawH * 0.5
+    const y = padTop + Math.min(drawH * 0.94, Math.max(4, normalized))
+    return { x, y }
+  })
+
+  // Build smooth curve path across the echogram
+  function buildEchogramPath(pts: { x: number; y: number }[]) {
+    if (pts.length === 0) return ""
+    let path = `M ${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[Math.max(0, i - 1)]
+      const p1 = pts[i]
+      const p2 = pts[i + 1]
+      const p3 = pts[Math.min(pts.length - 1, i + 2)]
+
+      const cp1x = p1.x + (p2.x - p0.x) / 6
+      const cp1y = p1.y + (p2.y - p0.y) / 6
+      const cp2x = p2.x - (p3.x - p1.x) / 6
+      const cp2y = p2.y - (p3.y - p1.y) / 6
+
+      path += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`
+    }
+    return path
+  }
+
+  const seabedCurve = buildEchogramPath(echogramPoints)
+  const seabedArea = seabedCurve
+    ? `${seabedCurve} L ${svgW},${svgH} L 0,${svgH} Z`
+    : ""
+
+  // Water Temperature (from sensor or standard default)
+  const rawWaterTemp = (vessel as any)?.waterTemp ?? (vessel as any)?.water_temp_c
+  const waterTempDisplay =
+    typeof rawWaterTemp === "number" && !isNaN(rawWaterTemp)
+      ? `${rawWaterTemp.toFixed(1)}°C`
+      : "28.5°C"
 
   return (
     <div className="flex h-full w-full flex-col justify-between select-none py-0.5 overflow-hidden">
-      {/* 1. Top Readout & Status Header */}
-      <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 shrink-0">
-        <div className="flex items-baseline gap-1 min-w-0">
+      {/* 1. Garmin CHIRP Header: Large Readout, Sonar Frequency & Shallow Alert */}
+      <div className="flex items-center justify-between pb-1 border-b border-slate-100 shrink-0">
+        <div className="flex items-baseline gap-1.5 min-w-0">
           <span className={`tabular-nums tracking-tight text-slate-900 ${heroValClass}`}>
             {rawDepth > 0 ? formatNum(rawDepth, decimals) : "—"}
           </span>
-          <span className={`font-extrabold text-slate-500 uppercase ${isLarge ? "text-base" : isSmall ? "text-xs" : "text-sm"}`}>{unit}</span>
-          <span className={`font-bold text-slate-400 uppercase tracking-wider ml-1.5 ${isLarge ? "text-xs" : "text-[10px]"}`}>
-            Echosounder
+          <span className={`font-extrabold text-slate-500 uppercase ${isLarge ? "text-base" : isSmall ? "text-xs" : "text-sm"}`}>
+            {unit}
           </span>
+          <div className="hidden sm:flex items-center gap-1.5 ml-2">
+            <span className="px-1.5 py-0.5 rounded bg-slate-900 text-[9px] font-black tracking-wider text-amber-400 border border-amber-400/30">
+              CHIRP HIGH
+            </span>
+            <span className="text-[10px] font-mono font-bold text-slate-400">
+              150–240 kHz
+            </span>
+          </div>
         </div>
 
-        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border shadow-2xs shrink-0 ${statusColor}`}>
-          <span className={`h-2 w-2 rounded-full ${isShallow ? "bg-rose-500 animate-pulse" : isCaution ? "bg-amber-500" : isSafe ? "bg-emerald-500" : "bg-slate-400"}`} />
-          <span>{statusText}</span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <div className="hidden md:flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-[10px] font-bold text-slate-600 border border-slate-200">
+            <Thermometer className="h-3 w-3 text-sky-500" />
+            <span>{waterTempDisplay}</span>
+          </div>
+
+          <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border shadow-2xs ${statusColor}`}>
+            <span className={`h-2 w-2 rounded-full ${isShallow ? "bg-rose-500 animate-pulse" : isCaution ? "bg-amber-500" : isSafe ? "bg-emerald-500" : "bg-slate-400"}`} />
+            <span>{statusText}</span>
+          </div>
         </div>
       </div>
 
-      {/* 2. Main Visual Depth Instrument: Water Column (Top) + Rising Seabed (Bottom) */}
-      <div className="relative flex-1 my-1.5 rounded-2xl overflow-hidden border border-slate-200/90 shadow-sm flex bg-slate-950 min-h-[90px]">
-        {/* Left: Graduated Depth Scale Ruler */}
-        <div className={`relative bg-slate-900 border-r border-slate-800 flex flex-col justify-between py-2 text-right shrink-0 select-none z-20 ${rulerWidthClass}`}>
-          {/* Risk Zone Color Bar on the inner edge of ruler */}
+      {/* 2. Main CHIRP Echosounder Display: Ruler + Echogram Waterfall + A-Scope */}
+      <div className="relative flex-1 my-1 rounded-2xl overflow-hidden border border-slate-800 shadow-lg flex bg-[#030712] min-h-[96px]">
+        {/* Left: Graduated Sonar Depth Ruler */}
+        <div className={`relative bg-slate-950/90 border-r border-slate-800/80 flex flex-col justify-between py-2 text-right shrink-0 select-none z-20 ${rulerWidthClass}`}>
+          {/* Risk Zone Color Bar */}
           <div className="absolute top-0 right-0 bottom-0 w-1 flex flex-col pointer-events-none">
-            {/* Red Shallow Strip (<5m) */}
-            <div
-              className="bg-rose-500/90 w-full"
-              style={{ height: `${shallowLimitPct}%` }}
-            />
-            {/* Amber Caution Strip (5m-10m) */}
-            <div
-              className="bg-amber-500/90 w-full"
-              style={{ height: `${Math.max(0, cautionLimitPct - shallowLimitPct)}%` }}
-            />
-            {/* Blue/Emerald Safe Strip (>10m) */}
-            <div
-              className="bg-cyan-500/90 w-full flex-1"
-            />
+            <div className="bg-rose-500/90 w-full" style={{ height: `${shallowLimitPct}%` }} />
+            <div className="bg-amber-500/90 w-full" style={{ height: `${Math.max(0, cautionLimitPct - shallowLimitPct)}%` }} />
+            <div className="bg-cyan-500/90 w-full flex-1" />
           </div>
 
-          {/* Depth Tick Labels with graduation lines */}
           {ticks.map((t) => (
             <div key={t.pct} className="relative flex items-center justify-end">
-              <span className={`leading-none text-slate-300 ${tickFontClass}`}>
+              <span className={`leading-none text-slate-400 ${tickFontClass}`}>
                 {t.val}m
               </span>
-              <span className="inline-block w-1.5 h-[1px] bg-slate-600 ml-1" />
+              <span className="inline-block w-1.5 h-[1px] bg-slate-700 ml-1" />
             </div>
           ))}
         </div>
 
-        {/* Right / Center: Water Column (Top) + Rising Seabed (Bottom) */}
-        <div className="relative flex-1 overflow-hidden bg-gradient-to-b from-[#0284c7] via-[#0369a1] to-[#075985] flex flex-col justify-between">
-          {/* Horizontal Depth Reference Guide Lines */}
+        {/* Center: Real-Time Scrolling CHIRP Echogram */}
+        <div className="relative flex-1 overflow-hidden bg-[#030712] flex flex-col justify-between">
+          {/* Surface Transducer Transmission Pulse (Near-Field Clutter at 0m) */}
+          <div className="absolute top-0 inset-x-0 h-2 bg-gradient-to-b from-[#ef4444] via-[#f59e0b] to-transparent opacity-80 z-20 pointer-events-none" />
+
+          {/* Depth Reference Grid Lines */}
           <div className="absolute inset-0 pointer-events-none flex flex-col justify-between z-10 opacity-20">
             {ticks.map((t) => (
-              <div key={t.pct} className="border-b border-dashed border-white w-full" />
+              <div key={t.pct} className="border-b border-dashed border-cyan-400 w-full" />
             ))}
           </div>
 
-          {/* Surface Level: Ship Floating at 0m (Keel) */}
-          <div className="absolute top-0 inset-x-0 h-7 flex items-center justify-between px-2.5 z-30 bg-gradient-to-b from-sky-300/30 to-transparent">
-            <div className="flex items-center gap-1.5 bg-slate-900/85 backdrop-blur-xs text-white px-2 py-0.5 rounded-md border border-white/20 shadow-xs">
-              <Ship className="h-3.5 w-3.5 text-cyan-300" />
-              <span className="text-[9px] font-black uppercase tracking-tight text-cyan-100">
-                Keel (0m)
-              </span>
-            </div>
-            <div className="text-[9px] font-bold text-sky-200/60 uppercase tracking-widest hidden sm:block">
-              Water Column
-            </div>
-          </div>
-
-          {/* Lower Layer: Seabed (Dasar Laut / Seafloor Acoustic Echo Return) */}
-          <div
-            className="absolute inset-x-0 bottom-0 transition-all duration-700 ease-out z-20 flex flex-col bg-gradient-to-b from-[#1e293b] via-[#0f172a] to-[#020617] border-t border-slate-700/60 shadow-[0_-8px_20px_rgba(0,0,0,0.5)]"
-            style={{ top: `${depthPct}%` }}
+          {/* Real-Time SVG Acoustic Echogram */}
+          <svg
+            viewBox={`0 0 ${svgW} ${svgH}`}
+            preserveAspectRatio="none"
+            className="absolute inset-0 h-full w-full overflow-visible z-10"
           >
-            {/* Sonar Acoustic Seabed Contour Wave Line */}
-            <div className="relative w-full shrink-0 -mt-2">
-              <svg
-                viewBox="0 0 100 12"
-                preserveAspectRatio="none"
-                className="w-full h-3 overflow-visible"
-              >
-                {/* Seabed top terrain fill */}
+            <defs>
+              {/* Iconic Garmin CHIRP Sonar Multi-Layer Gradient */}
+              <linearGradient id="chirpSeabedGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#fef08a" stopOpacity="1" />    {/* Hard Yellow Crest */}
+                <stop offset="6%" stopColor="#f97316" stopOpacity="0.95" /> {/* Orange Layer */}
+                <stop offset="16%" stopColor="#dc2626" stopOpacity="0.9" />  {/* High Absorption Red */}
+                <stop offset="42%" stopColor="#7f1d1d" stopOpacity="0.85" /> {/* Maroon Sediment */}
+                <stop offset="100%" stopColor="#09090b" stopOpacity="0.95" />{/* Deep Bedrock / Black */}
+              </linearGradient>
+
+              {/* Acoustic Surface Clutter Glow */}
+              <linearGradient id="surfaceSonarPulse" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#ef4444" stopOpacity="0.7" />
+                <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+
+            {/* Surface Pulse Ring */}
+            <rect x="0" y="0" width={svgW} height="6" fill="url(#surfaceSonarPulse)" />
+
+            {/* Faint Floating Sonar Water Particles (Fish / Thermocline Acoustic Returns) */}
+            <circle cx={svgW * 0.28} cy={Math.max(16, currentDepthY * 0.55)} r="1.5" fill="#38bdf8" opacity="0.4" />
+            <circle cx={svgW * 0.52} cy={Math.max(20, currentDepthY * 0.72)} r="1.8" fill="#38bdf8" opacity="0.35" />
+            <circle cx={svgW * 0.74} cy={Math.max(14, currentDepthY * 0.45)} r="1.2" fill="#38bdf8" opacity="0.5" />
+
+            {/* Multi-Layered CHIRP Seabed Area Fill */}
+            {seabedArea && <path d={seabedArea} fill="url(#chirpSeabedGrad)" />}
+
+            {/* Glowing Hard Return Bottom Line (Yellow / Orange Crest) */}
+            {seabedCurve && (
+              <>
                 <path
-                  d="M 0,6 Q 20,2 40,7 T 80,4 T 100,6 L 100,12 L 0,12 Z"
-                  fill="#1e293b"
-                />
-                {/* Luminous acoustic sonar reflection contour line */}
-                <path
-                  d="M 0,6 Q 20,2 40,7 T 80,4 T 100,6"
+                  d={seabedCurve}
                   fill="none"
-                  stroke={isShallow ? "#f43f5e" : isCaution ? "#f59e0b" : "#10b981"}
-                  strokeWidth="2.8"
+                  stroke="#ef4444"
+                  strokeWidth="5"
+                  strokeOpacity="0.4"
                   strokeLinecap="round"
+                  strokeLinejoin="round"
                 />
-              </svg>
+                <path
+                  d={seabedCurve}
+                  fill="none"
+                  stroke="#fef08a"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </>
+            )}
+          </svg>
+
+          {/* Top Keel Badge & Echosounder Mode Info */}
+          <div className="relative z-20 flex items-center justify-between px-2.5 pt-1.5 pointer-events-none">
+            <div className="flex items-center gap-1.5 bg-slate-900/90 text-cyan-200 px-2 py-0.5 rounded border border-cyan-500/30 text-[9px] font-bold shadow-xs backdrop-blur-xs">
+              <Ship className="h-3 w-3 text-cyan-300" />
+              <span>KEEL 0M</span>
             </div>
 
-            {/* Seabed Interior: Acoustic Sonar Echo Pattern & Label */}
-            <div className="flex-1 px-3 py-1.5 flex items-end justify-between relative overflow-hidden">
-              {/* Subtle hatched acoustic echo lines */}
-              <div
-                className="absolute inset-0 opacity-15 pointer-events-none"
-                style={{
-                  backgroundImage: "repeating-linear-gradient(45deg, #cbd5e1 0, #cbd5e1 1px, transparent 0, transparent 8px)",
-                }}
-              />
+            <div className="text-[8px] font-mono font-bold tracking-widest text-slate-500 uppercase">
+              ECHOMAP CHIRP
+            </div>
+          </div>
 
-              <div className="relative z-10 flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-300">
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    isShallow ? "bg-rose-500 animate-pulse" : isCaution ? "bg-amber-500" : "bg-emerald-500"
-                  }`}
+          {/* Bottom Seabed Acoustic Return Tag */}
+          <div className="relative z-20 flex items-center justify-between px-2.5 pb-1.5 pointer-events-none mt-auto">
+            <div className="flex items-center gap-1.5 text-[8.5px] font-black uppercase tracking-wider text-amber-300/80">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+              <span>CHIRP SEABED RETURN</span>
+            </div>
+
+            <div className="text-[8.5px] font-mono font-bold text-slate-500">
+              WATERFALL SCROLL &larr;
+            </div>
+          </div>
+        </div>
+
+        {/* Right: Garmin Signature A-Scope (Real-time Acoustic Amplitude Flasher) */}
+        <div className="relative w-8 bg-slate-950 border-l border-slate-800 flex flex-col justify-between shrink-0 select-none z-20 overflow-hidden">
+          {/* Header */}
+          <div className="text-center pt-1 text-[7px] font-mono font-black text-slate-500 tracking-tighter">
+            A-SCOPE
+          </div>
+
+          {/* A-Scope Ultrasonic Flasher Pulse */}
+          <div className="relative flex-1 w-full flex items-center justify-center my-0.5">
+            {/* Top surface clutter pulse */}
+            <div className="absolute top-0 w-3/4 h-2 bg-rose-500/80 rounded-b-xs" />
+
+            {/* Instant Seabed Acoustic Amplitude Spike at current depth */}
+            <div
+              className="absolute inset-x-0 transition-all duration-300 ease-out flex items-center justify-end pr-0.5 -translate-y-1/2"
+              style={{
+                top: `${rawDepth > 0 ? Math.min(90, Math.max(10, ((rawDepth - minDepth) / range) * 100)) : 50}%`,
+              }}
+            >
+              <div className="w-full flex items-center justify-end">
+                {/* Triangular amplitude spike */}
+                <div
+                  className="w-full h-3.5 bg-gradient-to-l from-amber-300 via-rose-500 to-transparent clip-path-polygon flex items-center justify-end pr-1 shadow-sm"
+                  style={{
+                    clipPath: "polygon(0% 50%, 100% 0%, 100% 100%)",
+                  }}
                 />
-                <span>{isShallow ? "SEABED (SHALLOW HAZARD)" : "SEABED / DASAR LAUT"}</span>
-              </div>
-
-              <div className="relative z-10 text-[9px] font-mono font-bold text-slate-400">
-                ECHO RETURN
               </div>
             </div>
           </div>
 
-          {/* Floating Target Depth Tag on the right edge */}
+          {/* Bottom Indicator */}
+          <div className="text-center pb-1 text-[7px] font-mono font-bold text-slate-600">
+            FLSH
+          </div>
+        </div>
+
+        {/* Floating Digital Depth Marker Tag (Snapping right to current seabed level) */}
+        <div
+          className="absolute right-10 z-30 transition-all duration-500 -translate-y-1/2"
+          style={{
+            top: `${rawDepth > 0 ? Math.min(88, Math.max(12, ((rawDepth - minDepth) / range) * 100)) : 50}%`,
+          }}
+        >
           <div
-            className="absolute right-2 z-30 transition-all duration-700 -translate-y-1/2"
-            style={{ top: `${depthPct}%` }}
+            className={`px-2 py-0.5 rounded-md text-[11px] font-black shadow-lg flex items-center gap-1 border transition cursor-default ${
+              isShallow
+                ? "bg-rose-600 text-white border-rose-300 shadow-rose-950/80 ring-1 ring-rose-400"
+                : isCaution
+                ? "bg-amber-500 text-slate-950 border-amber-200 shadow-amber-950/80"
+                : "bg-emerald-600 text-white border-emerald-300 shadow-emerald-950/80"
+            }`}
           >
-            <div
-              className={`px-2.5 py-1 rounded-lg text-xs font-black shadow-lg flex items-center gap-1.5 border transition cursor-default ${
-                isShallow
-                  ? "bg-rose-600 text-white border-rose-400 shadow-rose-950/60"
-                  : isCaution
-                  ? "bg-amber-500 text-slate-950 border-amber-300 shadow-amber-950/60"
-                  : "bg-emerald-600 text-white border-emerald-400 shadow-emerald-950/60"
-              }`}
-            >
-              <span>{rawDepth > 0 ? `${formatNum(rawDepth, decimals)} m` : "—"}</span>
-            </div>
+            <span>{rawDepth > 0 ? `${formatNum(rawDepth, decimals)} m` : "—"}</span>
           </div>
         </div>
       </div>
 
-      {/* 3. Bottom Operational Benchmarks (Clean & Relevant) */}
+      {/* 3. Bottom Operational Benchmarks: UKC Clearance & Dynamic Scale */}
       <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[10px]">
         <div className="flex items-center gap-1.5">
           <span className="text-slate-400 font-semibold">UKC Clearance:</span>
@@ -1835,9 +1967,12 @@ function BarChartWidget({
             {rawDepth > 0 ? `${formatNum(ukc, 1)} m` : "—"}
           </span>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
+          <span className="text-slate-400 font-semibold">Sonar:</span>
+          <span className="text-slate-700 font-bold font-mono">CHIRP High</span>
+          <span className="text-slate-300">•</span>
           <span className="text-slate-400 font-semibold">Scale:</span>
-          <span className="text-slate-700 font-bold">0–{maxDepth}m</span>
+          <span className="text-slate-700 font-bold font-mono">0–{maxDepth}m</span>
         </div>
       </div>
     </div>
