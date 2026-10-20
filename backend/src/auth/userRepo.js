@@ -154,6 +154,11 @@ async function getUserPermissions(userId) {
         'vessel.agent': { read: true, write: true },
         'telemetry.export': { read: true, write: true },
       },
+      sections: {
+        'section-nav': { read: true, write: true },
+        'section-engine': { read: true, write: true },
+        '*': { read: true, write: true },
+      },
       raw: []
     };
   }
@@ -169,14 +174,17 @@ async function getUserPermissions(userId) {
   const res = await pool.query(query, params);
   const pages = {};
   const features = {};
+  const sections = {};
   for (const row of res.rows) {
     if (row.resource_type === 'PAGE') {
       pages[row.resource_key] = { read: row.can_read, write: row.can_write };
+    } else if (row.resource_type === 'SECTION') {
+      sections[row.resource_key] = { read: row.can_read, write: row.can_write };
     } else {
       features[row.resource_key] = { read: row.can_read, write: row.can_write };
     }
   }
-  return { pages, features, raw: res.rows };
+  return { pages, features, sections, raw: res.rows };
 }
 
 async function setUserPermissions(userId, permissions = []) {

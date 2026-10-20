@@ -6,6 +6,7 @@ export interface PermissionItem {
 export interface UserPermissions {
   pages?: Record<string, PermissionItem>
   features?: Record<string, PermissionItem>
+  sections?: Record<string, PermissionItem>
 }
 
 export interface Role {
@@ -16,6 +17,7 @@ export interface Role {
   permissions: {
     pages: Record<string, PermissionItem>
     features: Record<string, PermissionItem>
+    sections?: Record<string, PermissionItem>
     raw?: Array<{ resource_type: string; resource_key: string; can_read: boolean; can_write: boolean }>
   }
   userCount?: number

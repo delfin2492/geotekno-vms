@@ -38,6 +38,12 @@ const AVAILABLE_FEATURES = [
   { key: "telemetry.export", label: "Telemetry History Export", desc: "Download vessel NMEA logs & CSV archives" },
 ]
 
+const AVAILABLE_SECTIONS = [
+  { key: "section-nav", label: "Navigation & Maneuvering", desc: "Speed over ground, heading, compass, water depth, and position instruments" },
+  { key: "section-engine", label: "Engine & Machinery", desc: "Machinery status, propulsion RPM trends, and fuel telemetry diagnostics" },
+  { key: "*", label: "Custom / Additional Sections", desc: "Access to newly created dashboard sections and command centers" },
+]
+
 export function UserManagementPage() {
   const { user: currentUser } = useAuth()
   const [activeTab, setActiveTab] = useState<"users" | "roles">("users")
@@ -91,6 +97,7 @@ export function UserManagementPage() {
     description: "",
     pagePermissions: {} as Record<string, { read: boolean; write: boolean }>,
     featurePermissions: {} as Record<string, { read: boolean; write: boolean }>,
+    sectionPermissions: {} as Record<string, { read: boolean; write: boolean }>,
   })
 
   const loadData = async () => {
@@ -249,11 +256,17 @@ export function UserManagementPage() {
       defaultFeatures[f.key] = { read: false, write: false }
     })
 
+    const defaultSections: Record<string, { read: boolean; write: boolean }> = {}
+    AVAILABLE_SECTIONS.forEach((s) => {
+      defaultSections[s.key] = { read: true, write: false }
+    })
+
     setRoleFormData({
       name: "",
       description: "",
       pagePermissions: defaultPages,
       featurePermissions: defaultFeatures,
+      sectionPermissions: defaultSections,
     })
     setIsRoleModalOpen(true)
   }
@@ -280,11 +293,21 @@ export function UserManagementPage() {
       }
     })
 
+    const secPerms: Record<string, { read: boolean; write: boolean }> = {}
+    AVAILABLE_SECTIONS.forEach((s) => {
+      const existing = role.permissions?.sections?.[s.key]
+      secPerms[s.key] = {
+        read: existing?.read ?? (role.id === "role_superadmin"),
+        write: existing?.write ?? (role.id === "role_superadmin"),
+      }
+    })
+
     setRoleFormData({
       name: role.name,
       description: role.description || "",
       pagePermissions: pagePerms,
       featurePermissions: featPerms,
+      sectionPermissions: secPerms,
     })
     setIsRoleModalOpen(true)
   }
@@ -302,6 +325,12 @@ export function UserManagementPage() {
         })),
         ...Object.entries(roleFormData.featurePermissions).map(([k, v]) => ({
           resource_type: "FEATURE",
+          resource_key: k,
+          can_read: v.read,
+          can_write: v.write,
+        })),
+        ...Object.entries(roleFormData.sectionPermissions).map(([k, v]) => ({
+          resource_type: "SECTION",
           resource_key: k,
           can_read: v.read,
           can_write: v.write,
@@ -682,6 +711,15 @@ export function UserManagementPage() {
                           </span>
                           <span className="font-bold text-slate-900">
                             {isSuperRole ? "Full Control" : `${featCount} Configured`}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-slate-600">
+                          <span className="flex items-center gap-1.5 text-[11px]">
+                            <Compass className="h-3.5 w-3.5 text-slate-400" />
+                            Monitoring Sections:
+                          </span>
+                          <span className="font-bold text-slate-900">
+                            {isSuperRole ? "All Sections" : `${Object.keys(role.permissions?.sections || {}).length} Configured`}
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-slate-600 pt-1 border-t border-slate-200/60">
@@ -1100,6 +1138,72 @@ export function UserManagementPage() {
                                       featurePermissions: {
                                         ...roleFormData.featurePermissions,
                                         [feat.key]: { ...current, write: e.target.checked },
+                                      },
+                                    })
+                                  }
+                                  className="h-4 w-4 rounded text-[#db4040] focus:ring-[#db4040]"
+                                />
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* 4. Monitoring Dashboard Section Scopes */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Compass className="h-4 w-4 text-[#db4040]" />
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Monitoring Dashboard Section Scopes
+                    </h4>
+                  </div>
+                  <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                    <table className="w-full text-left text-xs">
+                      <thead className="border-b border-slate-100 bg-slate-50 font-bold uppercase tracking-wider text-slate-500">
+                        <tr>
+                          <th className="px-4 py-2.5">Dashboard Section</th>
+                          <th className="px-4 py-2.5 text-center w-24">Can View (Read)</th>
+                          <th className="px-4 py-2.5 text-center w-24">Can Modify (Write)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {AVAILABLE_SECTIONS.map((sec) => {
+                          const current = roleFormData.sectionPermissions[sec.key] || { read: false, write: false }
+                          return (
+                            <tr key={sec.key} className="hover:bg-slate-50/60">
+                              <td className="px-4 py-2.5">
+                                <p className="font-semibold text-slate-800">{sec.label}</p>
+                                <p className="text-[10px] text-slate-400">{sec.desc}</p>
+                              </td>
+                              <td className="px-4 py-2.5 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={current.read}
+                                  onChange={(e) =>
+                                    setRoleFormData({
+                                      ...roleFormData,
+                                      sectionPermissions: {
+                                        ...roleFormData.sectionPermissions,
+                                        [sec.key]: { ...current, read: e.target.checked },
+                                      },
+                                    })
+                                  }
+                                  className="h-4 w-4 rounded text-[#db4040] focus:ring-[#db4040]"
+                                />
+                              </td>
+                              <td className="px-4 py-2.5 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={current.write}
+                                  onChange={(e) =>
+                                    setRoleFormData({
+                                      ...roleFormData,
+                                      sectionPermissions: {
+                                        ...roleFormData.sectionPermissions,
+                                        [sec.key]: { ...current, write: e.target.checked },
                                       },
                                     })
                                   }

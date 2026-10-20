@@ -255,7 +255,10 @@ VALUES
     ('role_fleet_operator', 'PAGE', 'logs', TRUE, FALSE),
     ('role_fleet_operator', 'FEATURE', 'vessel.decoder', TRUE, FALSE),
     ('role_fleet_operator', 'FEATURE', 'vessel.agent', TRUE, TRUE),
-    ('role_fleet_operator', 'FEATURE', 'telemetry.export', TRUE, FALSE)
+    ('role_fleet_operator', 'FEATURE', 'telemetry.export', TRUE, FALSE),
+    ('role_fleet_operator', 'SECTION', 'section-nav', TRUE, TRUE),
+    ('role_fleet_operator', 'SECTION', 'section-engine', TRUE, TRUE),
+    ('role_fleet_operator', 'SECTION', '*', TRUE, TRUE)
 ON CONFLICT (role_id, resource_key) DO NOTHING;
 
 -- Seed default role permissions for Viewer
@@ -268,7 +271,10 @@ VALUES
     ('role_viewer', 'PAGE', 'logs', TRUE, FALSE),
     ('role_viewer', 'FEATURE', 'vessel.decoder', FALSE, FALSE),
     ('role_viewer', 'FEATURE', 'vessel.agent', FALSE, FALSE),
-    ('role_viewer', 'FEATURE', 'telemetry.export', TRUE, FALSE)
+    ('role_viewer', 'FEATURE', 'telemetry.export', TRUE, FALSE),
+    ('role_viewer', 'SECTION', 'section-nav', TRUE, FALSE),
+    ('role_viewer', 'SECTION', 'section-engine', TRUE, FALSE),
+    ('role_viewer', 'SECTION', '*', TRUE, FALSE)
 ON CONFLICT (role_id, resource_key) DO NOTHING;
 
 -- Seed default Superadmin (Password: AdminNav2026!)

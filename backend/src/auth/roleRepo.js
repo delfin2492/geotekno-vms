@@ -8,14 +8,17 @@ async function getRolePermissions(roleId) {
   );
   const pages = {};
   const features = {};
+  const sections = {};
   for (const row of res.rows) {
     if (row.resource_type === 'PAGE') {
       pages[row.resource_key] = { read: row.can_read, write: row.can_write };
+    } else if (row.resource_type === 'SECTION') {
+      sections[row.resource_key] = { read: row.can_read, write: row.can_write };
     } else {
       features[row.resource_key] = { read: row.can_read, write: row.can_write };
     }
   }
-  return { pages, features, raw: res.rows };
+  return { pages, features, sections, raw: res.rows };
 }
 
 async function setRolePermissions(roleId, permissions = []) {

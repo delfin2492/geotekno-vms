@@ -12,6 +12,7 @@ interface AuthContextType {
   refreshProfile: () => Promise<void>
   canAccessPage: (pageKey: string, action?: "read" | "write") => boolean
   canAccessFeature: (featureKey: string, action?: "read" | "write") => boolean
+  canAccessSection: (sectionId: string, action?: "read" | "write") => boolean
   canAccessVessel: (vesselId: string) => boolean
 }
 
@@ -101,6 +102,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [user]
   )
 
+  const canAccessSection = useCallback(
+    (sectionId: string, action: "read" | "write" = "read"): boolean => {
+      if (!user) return false
+      if (user.isSuperadmin) return true
+
+      const sectionsPerm = user.permissions?.sections
+      // If no section permissions configured at all on this role, default allow for backwards compatibility
+      if (!sectionsPerm || Object.keys(sectionsPerm).length === 0) return true
+
+      // Exact match or wildcard '*' match
+      const sectionPerm = sectionsPerm[sectionId] || sectionsPerm["*"]
+      if (!sectionPerm) return false
+
+      if (action === "write") return !!sectionPerm.write
+      return !!sectionPerm.read
+    },
+    [user]
+  )
+
   return (
     <AuthContext.Provider
       value={{
@@ -114,6 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         refreshProfile,
         canAccessPage,
         canAccessFeature,
+        canAccessSection,
         canAccessVessel,
       }}
     >

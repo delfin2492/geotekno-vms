@@ -27,6 +27,7 @@ import {
   GripVertical,
   Layers,
   LayoutGrid,
+  Lock,
   Map,
   Maximize2,
   Minimize2,
@@ -60,6 +61,7 @@ import {
   inputClass,
 } from "@/components/common/UI"
 import { useFleet } from "@/state/FleetProvider"
+import { useAuth } from "@/state/AuthProvider"
 import { api } from "@/services/api"
 import type { AisTarget, AssetAttribute, Vessel } from "@/domain/types"
 import {
@@ -3557,7 +3559,14 @@ const PALETTE_WIDGETS: PaletteItem[] = [
 ]
 
 export function MonitoringPage() {
-  const { vessels } = useFleet()
+  const { vessels: allVessels } = useFleet()
+  const { user, canAccessVessel, canAccessSection, isSuperadmin } = useAuth()
+
+  // Filter vessels strictly to vessels the user has permission to access
+  const vessels = useMemo(() => {
+    return allVessels.filter((v) => canAccessVessel(v.id))
+  }, [allVessels, canAccessVessel])
+
   const mainContainerRef = useRef<HTMLElement>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
 
@@ -3721,9 +3730,27 @@ export function MonitoringPage() {
     }
   }, [sections, lastSavedSnapshot])
 
-  // Active section resolution
+  // Allowed sections based on user role permissions
+  const allowedSections = useMemo(() => {
+    return sections.filter((s) => canAccessSection(s.id, "read"))
+  }, [sections, canAccessSection])
+
+  // Active section resolution: must be from allowedSections
   const activeSection =
-    sections.find((s) => s.id === activeSectionId) ?? sections[0] ?? defaultSections[0]
+    allowedSections.find((s) => s.id === activeSectionId) ??
+    allowedSections[0] ??
+    sections[0] ??
+    defaultSections[0]
+
+  // Automatically keep activeSectionId valid if allowedSections changes
+  useEffect(() => {
+    if (allowedSections.length > 0 && !allowedSections.some((s) => s.id === activeSectionId)) {
+      setActiveSectionId(allowedSections[0].id)
+    }
+  }, [allowedSections, activeSectionId])
+
+  // Can current user modify the active section?
+  const canModifyActiveSection = canAccessSection(activeSection.id, "write")
 
   // Helper to test if two layout items overlap
   function doesOverlap(a: LayoutItem, b: LayoutItem): boolean {
@@ -4540,12 +4567,30 @@ export function MonitoringPage() {
 
   if (vessels.length === 0) {
     return (
-      <main className="grid min-h-[600px] place-items-center text-center">
-        <div>
-          <Anchor className="mx-auto h-10 w-10 text-slate-300" />
-          <h1 className="mt-4 text-lg font-bold">No vessel available</h1>
-          <p className="mt-1 text-xs text-slate-400">
-            Register a vessel before creating a monitoring dashboard.
+      <main className="grid min-h-[600px] place-items-center text-center p-6">
+        <div className="max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 shadow-inner">
+            <Lock className="h-7 w-7" />
+          </div>
+          <h1 className="mt-4 text-base font-bold text-slate-800">No Accessible Vessels Assigned</h1>
+          <p className="mt-1 text-xs text-slate-500 leading-relaxed">
+            Your user account does not have permission to access any vessel telemetry. Please contact your Fleet Administrator to assign vessel access.
+          </p>
+        </div>
+      </main>
+    )
+  }
+
+  if (allowedSections.length === 0) {
+    return (
+      <main className="grid min-h-[600px] place-items-center text-center p-6">
+        <div className="max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 shadow-inner">
+            <Lock className="h-7 w-7" />
+          </div>
+          <h1 className="mt-4 text-base font-bold text-slate-800">No Monitoring Sections Accessible</h1>
+          <p className="mt-1 text-xs text-slate-500 leading-relaxed">
+            Your role does not have permission to view any dashboard sections on this monitoring console. Contact your Administrator to grant section access.
           </p>
         </div>
       </main>
@@ -4583,7 +4628,7 @@ export function MonitoringPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-2xl border border-slate-200/90 bg-white p-2.5 shadow-xs mb-3">
         {/* Scrollable Tabs for Sections */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-          {sections.map((sec) => {
+          {allowedSections.map((sec) => {
             const isActive = sec.id === activeSection.id
             return (
               <button
@@ -4612,7 +4657,7 @@ export function MonitoringPage() {
           })}
 
           {/* Button Add Section Dashboard (Modify Mode Only) */}
-          {dashboardMode === "modify" && (
+          {dashboardMode === "modify" && canModifyActiveSection && (
             <button
               onClick={() => {
                 setNewSectionName(`Section ${sections.length + 1}`)
@@ -4631,7 +4676,7 @@ export function MonitoringPage() {
         {/* Top Right Controls: Single Toggle Button & Save Button */}
         <div className="flex flex-wrap items-center gap-2.5 self-end sm:self-auto shrink-0">
           {/* Section Tools: Rename & Delete (Modify Mode Only) */}
-          {dashboardMode === "modify" && (
+          {dashboardMode === "modify" && canModifyActiveSection && (
             <>
               <button
                 onClick={() => {
@@ -4723,14 +4768,16 @@ export function MonitoringPage() {
 
           {/* SINGLE TOGGLE BUTTON: VIEW MODE <-> MODIFY MODE */}
           {dashboardMode === "view" ? (
-            <button
-              type="button"
-              onClick={handleSwitchToModifyMode}
-              className="flex items-center gap-1.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white px-3.5 py-2 text-xs font-bold transition shadow-sm cursor-pointer"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              <span>Modify Mode</span>
-            </button>
+            canModifyActiveSection ? (
+              <button
+                type="button"
+                onClick={handleSwitchToModifyMode}
+                className="flex items-center gap-1.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white px-3.5 py-2 text-xs font-bold transition shadow-sm cursor-pointer"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                <span>Modify Mode</span>
+              </button>
+            ) : null
           ) : (
             <button
               type="button"
@@ -4834,9 +4881,40 @@ export function MonitoringPage() {
                   draggableHandle=".widget-handle"
                 >
                   {activeSection.widgets.map((widget) => {
+                    const isVesselPermitted = !widget.vesselId || canAccessVessel(widget.vesselId)
                     const widgetVessel =
-                      vessels.find((v) => v.id === widget.vesselId) || vessels[0]
+                      vessels.find((v) => v.id === widget.vesselId) || (isVesselPermitted ? vessels[0] : null)
                     const isSelected = dashboardMode === "modify" && selectedWidgetId === widget.id
+
+                    if (!isVesselPermitted || !widgetVessel) {
+                      return (
+                        <div
+                          key={widget.id}
+                          className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-xs select-none"
+                        >
+                          <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-3 py-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-[11px] font-bold text-slate-800 tracking-tight truncate">
+                                {widget.title}
+                              </span>
+                              <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 border border-amber-200/80 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 shrink-0">
+                                <Lock className="h-2.5 w-2.5" />
+                                <span>Restricted</span>
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex h-[calc(100%-37px)] w-full flex-col items-center justify-center p-4 text-center bg-slate-50/40">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50 text-amber-600 mb-2 shadow-inner">
+                              <Lock className="h-4 w-4" />
+                            </div>
+                            <p className="text-xs font-bold text-slate-700">Access Restricted</p>
+                            <p className="text-[10px] text-slate-400 mt-0.5 max-w-[200px]">
+                              Vessel telemetry attribute is restricted for your user account.
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    }
 
                     return (
                       <div
