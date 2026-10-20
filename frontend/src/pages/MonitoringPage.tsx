@@ -3650,8 +3650,9 @@ export function MonitoringPage() {
     }))
   }
 
-  // Dragging State for new widgets
+  // Dragging State for new widgets and existing widget reordering
   const isDraggingRef = useRef(false)
+  const dragInitialLayoutRef = useRef<LayoutItem[] | null>(null)
   const [droppingWidget, setDroppingWidget] = useState<{
     type: WidgetType
     title: string
@@ -3940,6 +3941,14 @@ export function MonitoringPage() {
         if (widget) {
           setWidgetToDelete(widget)
         }
+      }
+
+      // Check for Escape key to cancel dragging and revert positions
+      if (e.key === "Escape" && isDraggingRef.current && dragInitialLayoutRef.current) {
+        isDraggingRef.current = false
+        const restored = dragInitialLayoutRef.current
+        dragInitialLayoutRef.current = null
+        handleCommitLayout(restored)
       }
     }
 
@@ -4781,6 +4790,7 @@ export function MonitoringPage() {
                   margin={[12, 12]}
                   compactType={null}
                   preventCollision={false}
+                  allowOverlap={true}
                   isDraggable={dashboardMode === "modify"}
                   isResizable={dashboardMode === "modify"}
                   isDroppable={dashboardMode === "modify"}
@@ -4791,11 +4801,24 @@ export function MonitoringPage() {
                     w: droppingWidget.w,
                     h: droppingWidget.h,
                   }}
-                  onDragStart={() => {
+                  onDragStart={(_layout, oldItem) => {
                     isDraggingRef.current = true
+                    dragInitialLayoutRef.current = (activeSection.layouts?.lg || []).map((it) => ({
+                      ...it,
+                    }))
                   }}
-                  onDragStop={(layout, _oldItem, newItem) => {
+                  onDragStop={(layout, oldItem, newItem) => {
                     isDraggingRef.current = false
+                    dragInitialLayoutRef.current = null
+                    // If dropped back at original position without moving, no layout modification needed
+                    if (
+                      oldItem &&
+                      newItem &&
+                      oldItem.x === newItem.x &&
+                      oldItem.y === newItem.y
+                    ) {
+                      return
+                    }
                     handleCommitLayout(layout, newItem?.i)
                   }}
                   onResizeStop={(layout, _oldItem, newItem) => {
