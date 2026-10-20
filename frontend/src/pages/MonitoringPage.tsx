@@ -4788,9 +4788,9 @@ export function MonitoringPage() {
                   cols={{ lg: 12, md: 12, sm: 12, xs: 1 }}
                   rowHeight={44}
                   margin={[12, 12]}
-                  compactType={null}
+                  compactType="vertical"
                   preventCollision={false}
-                  allowOverlap={true}
+                  allowOverlap={false}
                   isDraggable={dashboardMode === "modify"}
                   isResizable={dashboardMode === "modify"}
                   isDroppable={dashboardMode === "modify"}
@@ -4809,14 +4809,17 @@ export function MonitoringPage() {
                   }}
                   onDragStop={(layout, oldItem, newItem) => {
                     isDraggingRef.current = false
+                    const initialLayout = dragInitialLayoutRef.current
                     dragInitialLayoutRef.current = null
-                    // If dropped back at original position without moving, no layout modification needed
+                    // If dropped back at original position without moving, revert to initial layout
                     if (
                       oldItem &&
                       newItem &&
                       oldItem.x === newItem.x &&
-                      oldItem.y === newItem.y
+                      oldItem.y === newItem.y &&
+                      initialLayout
                     ) {
+                      handleCommitLayout(initialLayout)
                       return
                     }
                     handleCommitLayout(layout, newItem?.i)
