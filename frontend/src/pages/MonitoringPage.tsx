@@ -3724,6 +3724,69 @@ export function MonitoringPage() {
   const activeSection =
     sections.find((s) => s.id === activeSectionId) ?? sections[0] ?? defaultSections[0]
 
+  // Helper to test if two layout items overlap
+  function doesOverlap(a: LayoutItem, b: LayoutItem): boolean {
+    return (
+      a.x < b.x + b.w &&
+      a.x + a.w > b.x &&
+      a.y < b.y + b.h &&
+      a.y + a.h > b.y
+    )
+  }
+
+  // Resolve all collisions across layout with cascading downward pushes, anchoring active item if provided
+  function resolveAllCollisions(
+    layout: (LayoutItem | Layout[number])[],
+    anchorId?: string,
+    cols: number = 12
+  ): LayoutItem[] {
+    const clean = layout
+      .filter((it) => it.i !== "__dropping-elem__")
+      .map((it) => ({
+        ...it,
+        x: Math.max(0, Math.min(Math.round(it.x ?? 0), cols - it.w)),
+        y: Math.max(0, Math.round(it.y ?? 0)),
+      }))
+
+    const anchor = anchorId ? clean.find((it) => it.i === anchorId) : undefined
+    const placed: LayoutItem[] = []
+    if (anchor) {
+      placed.push(anchor)
+    }
+
+    const others = clean
+      .filter((it) => it.i !== anchorId)
+      .sort((a, b) => a.y - b.y || a.x - b.x)
+
+    for (const item of others) {
+      let hasCollision = true
+      let safetyCounter = 0
+      while (hasCollision && safetyCounter < 200) {
+        safetyCounter++
+        hasCollision = false
+        for (const p of placed) {
+          if (doesOverlap(item, p)) {
+            item.y = p.y + p.h
+            hasCollision = true
+            break
+          }
+        }
+      }
+      placed.push(item)
+    }
+
+    return placed
+  }
+
+  // Legacy helper for single new item drop
+  function resolveCollisions(
+    existing: (LayoutItem | Layout[number])[],
+    newItem: LayoutItem,
+    cols: number = 12
+  ): LayoutItem[] {
+    return resolveAllCollisions([...existing, newItem], newItem.i, cols)
+  }
+
   // Memoized layouts for react-grid-layout to prevent layout thrashing and infinite loops
   const effectiveLayouts = useMemo(() => {
     const rawLayouts = activeSection?.layouts || { lg: [] }
@@ -3741,12 +3804,14 @@ export function MonitoringPage() {
         isFinite(item.y)
     )
 
+    const resolvedPrimary = resolveAllCollisions(primaryLayout, undefined, 12)
+
     return {
       ...rawLayouts,
-      lg: primaryLayout,
-      md: primaryLayout,
-      sm: primaryLayout,
-      xs: (rawLayouts.xs || primaryLayout)
+      lg: resolvedPrimary,
+      md: resolvedPrimary,
+      sm: resolvedPrimary,
+      xs: (rawLayouts.xs || resolvedPrimary)
         .filter((item) => item.i !== "__dropping-elem__")
         .map((item, i) => ({
           ...item,
@@ -3904,57 +3969,6 @@ export function MonitoringPage() {
       }
     }
     return true
-  }
-
-  // Helper to test if two layout items overlap
-  function doesOverlap(a: LayoutItem, b: LayoutItem): boolean {
-    return (
-      a.x < b.x + b.w &&
-      a.x + a.w > b.x &&
-      a.y < b.y + b.h &&
-      a.y + a.h > b.y
-    )
-  }
-
-  // Resolve collisions by pushing overlapping widgets and downstream widgets downward cleanly
-  function resolveCollisions(
-    existing: (LayoutItem | Layout[number])[],
-    newItem: LayoutItem,
-    cols: number = 12
-  ): LayoutItem[] {
-    const clampedX = Math.max(0, Math.min(Math.round(newItem.x ?? 0), cols - newItem.w))
-    const clampedY = Math.max(0, Math.round(newItem.y ?? 0))
-    const placedNew: LayoutItem = {
-      ...newItem,
-      x: clampedX,
-      y: clampedY,
-    }
-
-    const items = existing
-      .filter((it) => it.i !== newItem.i && it.i !== "__dropping-elem__")
-      .map((it) => ({ ...it }))
-      .sort((a, b) => a.y - b.y || a.x - b.x)
-
-    const placed: LayoutItem[] = [placedNew]
-
-    for (const item of items) {
-      let hasCollision = true
-      let safetyCounter = 0
-      while (hasCollision && safetyCounter < 100) {
-        safetyCounter++
-        hasCollision = false
-        for (const p of placed) {
-          if (doesOverlap(item, p)) {
-            item.y = p.y + p.h
-            hasCollision = true
-            break
-          }
-        }
-      }
-      placed.push(item)
-    }
-
-    return placed
   }
 
   // Direct drop handler from right sidebar onto canvas
@@ -4240,12 +4254,15 @@ export function MonitoringPage() {
   }
 
   // Commit layout changes when drag/resize action completes
-  function handleCommitLayout(newLayout: Layout | LayoutItem[]) {
+  function handleCommitLayout(newLayout: Layout | LayoutItem[], anchorId?: string) {
     if (dashboardMode !== "modify") return
     if (!Array.isArray(newLayout) || newLayout.length === 0) return
-    const clean12Col: LayoutItem[] = newLayout
+    const rawClean = newLayout
       .filter((it) => it.i !== "__dropping-elem__")
       .map((it) => ({ ...it }))
+
+    const clean12Col = resolveAllCollisions(rawClean, anchorId, 12)
+
     const currentActiveLg = (activeSection.layouts?.lg || []).filter(
       (it) => it.i !== "__dropping-elem__"
     )
@@ -4276,9 +4293,11 @@ export function MonitoringPage() {
     // Never update state while an external item is hovering over the canvas
     if (raw12Col.some((it) => it.i === "__dropping-elem__")) return
 
-    const current12Col: LayoutItem[] = raw12Col
+    const rawClean = raw12Col
       .filter((it) => it.i !== "__dropping-elem__")
       .map((it) => ({ ...it }))
+
+    const current12Col = resolveAllCollisions(rawClean, undefined, 12)
     const currentActiveLg = (activeSection.layouts?.lg || []).filter(
       (it) => it.i !== "__dropping-elem__"
     )
@@ -4775,12 +4794,12 @@ export function MonitoringPage() {
                   onDragStart={() => {
                     isDraggingRef.current = true
                   }}
-                  onDragStop={(layout) => {
+                  onDragStop={(layout, _oldItem, newItem) => {
                     isDraggingRef.current = false
-                    handleCommitLayout(layout)
+                    handleCommitLayout(layout, newItem?.i)
                   }}
-                  onResizeStop={(layout) => {
-                    handleCommitLayout(layout)
+                  onResizeStop={(layout, _oldItem, newItem) => {
+                    handleCommitLayout(layout, newItem?.i)
                   }}
                   onDrop={(_layout, layoutItem) => {
                     if (layoutItem) handleDrop(layoutItem)
