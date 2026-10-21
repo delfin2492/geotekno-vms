@@ -3558,6 +3558,49 @@ const PALETTE_WIDGETS: PaletteItem[] = [
   { type: "engine", label: "Machinery", icon: Fuel, defaultW: 6, defaultH: 4, attributeKey: "machinery" },
 ]
 
+function isAttributeRegisteredOnVessel(
+  attrKey: string,
+  vessel?: Vessel | null,
+  registeredAttrs?: AssetAttribute[]
+): boolean {
+  if (!vessel) return false
+
+  const clean = (str: string) => str.toLowerCase().replace(/[^a-z0-9]/g, "")
+  const targetKey = clean(attrKey)
+
+  // 1. Strict check if registered attributes list is available from DB for this vessel
+  if (Array.isArray(registeredAttrs) && registeredAttrs.length > 0) {
+    const regKeySet = new Set(registeredAttrs.map((r) => clean(r.keyName)))
+
+    if (targetKey === "sog") return regKeySet.has("sog") || regKeySet.has("speed")
+    if (targetKey === "heading") return regKeySet.has("heading") || regKeySet.has("compass") || regKeySet.has("headingtrue")
+    if (targetKey === "cog") return regKeySet.has("cog") || regKeySet.has("course")
+    if (targetKey === "depth") return regKeySet.has("depth") || regKeySet.has("waterdepth") || regKeySet.has("echosounder")
+    if (targetKey === "windspeed") return regKeySet.has("windspeed") || regKeySet.has("wind") || regKeySet.has("apparentwindspeed")
+    if (targetKey === "position") return regKeySet.has("position") || regKeySet.has("gnss") || regKeySet.has("coordinates") || regKeySet.has("latlng")
+    if (targetKey === "fuel") return regKeySet.has("fuel") || regKeySet.has("fuellevel") || regKeySet.has("fueltank")
+    if (targetKey === "rpm") return regKeySet.has("rpm") || regKeySet.has("enginerpm") || regKeySet.has("mainenginerpm")
+    if (targetKey === "engineload") return regKeySet.has("engineload") || regKeySet.has("load") || regKeySet.has("engineloadpct")
+    if (targetKey === "machinery") return regKeySet.has("machinery") || regKeySet.has("rpm") || regKeySet.has("enginerpm") || regKeySet.has("engineload")
+
+    return regKeySet.has(targetKey)
+  }
+
+  // 2. Fallback check: only include attributes that have non-null, non-undefined data on vessel
+  if (targetKey === "sog") return vessel.sog !== null && vessel.sog !== undefined
+  if (targetKey === "heading") return vessel.heading !== null && vessel.heading !== undefined
+  if (targetKey === "cog") return vessel.cog !== null && vessel.cog !== undefined
+  if (targetKey === "depth") return vessel.depth !== null && vessel.depth !== undefined
+  if (targetKey === "windspeed") return vessel.windSpeed !== null && vessel.windSpeed !== undefined
+  if (targetKey === "position") return vessel.position !== null && vessel.position !== undefined
+  if (targetKey === "fuel") return vessel.fuel !== null && vessel.fuel !== undefined
+  if (targetKey === "rpm") return vessel.rpm !== null && vessel.rpm !== undefined
+  if (targetKey === "engineload") return vessel.engineLoad !== null && vessel.engineLoad !== undefined
+  if (targetKey === "machinery") return vessel.rpm !== null && vessel.rpm !== undefined
+
+  return false
+}
+
 export function MonitoringPage() {
   const { vessels: allVessels } = useFleet()
   const { user, canAccessVessel, canAccessSection, isSuperadmin } = useAuth()
@@ -3739,6 +3782,39 @@ export function MonitoringPage() {
   const [pickerSecondaryAttrKey, setPickerSecondaryAttrKey] = useState<string>("cog")
   const [attrSearch, setAttrSearch] = useState("")
   const [attrCategoryFilter, setAttrCategoryFilter] = useState<string>("all")
+
+  // Registered Attributes Cache for Vessels (to filter out unregistered attributes)
+  const [vesselAttributesMap, setVesselAttributesMap] = useState<Record<string, AssetAttribute[]>>({})
+
+  // Preload registered attributes for all accessible vessels
+  useEffect(() => {
+    if (!vessels || vessels.length === 0) return
+    vessels.forEach((v) => {
+      api
+        .getAttributes(v.id)
+        .then((attrs) => {
+          if (Array.isArray(attrs)) {
+            setVesselAttributesMap((prev) => ({ ...prev, [v.id]: attrs }))
+          }
+        })
+        .catch(() => {})
+    })
+  }, [vessels])
+
+  // Fetch registered attributes when selected picker vessel changes
+  useEffect(() => {
+    if (!pickerVesselId) return
+    if (!vesselAttributesMap[pickerVesselId]) {
+      api
+        .getAttributes(pickerVesselId)
+        .then((attrs) => {
+          if (Array.isArray(attrs)) {
+            setVesselAttributesMap((prev) => ({ ...prev, [pickerVesselId]: attrs }))
+          }
+        })
+        .catch(() => {})
+    }
+  }, [pickerVesselId])
 
   // Modal Confirmation Delete Widget
   const [widgetToDelete, setWidgetToDelete] = useState<WidgetDef | null>(null)
@@ -3925,19 +4001,47 @@ export function MonitoringPage() {
     return VESSEL_ATTRIBUTES.find((a) => a.key === secKey) || null
   }, [selectedWidget])
 
-  // Filtered attributes in picker modal
+  // Filtered attributes in picker modal: strictly only show attributes registered on selected vessel
   const filteredPickerAttributes = useMemo(() => {
+    const targetVessel = vessels.find((v) => v.id === pickerVesselId) || vessels[0] || null
+    const registeredList = pickerVesselId ? vesselAttributesMap[pickerVesselId] : undefined
+
     return VESSEL_ATTRIBUTES.filter((attr) => {
+      // 1. Only allow attributes registered on the selected vessel (removes unregistered attributes)
+      if (!isAttributeRegisteredOnVessel(attr.key, targetVessel, registeredList)) {
+        return false
+      }
+
+      // 2. Category filter
       const matchCategory =
         attrCategoryFilter === "all" || attr.category === attrCategoryFilter
+
+      // 3. Search query
       const matchSearch =
         !attrSearch.trim() ||
         attr.label.toLowerCase().includes(attrSearch.toLowerCase()) ||
         attr.key.toLowerCase().includes(attrSearch.toLowerCase()) ||
         attr.unit.toLowerCase().includes(attrSearch.toLowerCase())
+
       return matchCategory && matchSearch
     })
-  }, [attrCategoryFilter, attrSearch])
+  }, [pickerVesselId, vessels, vesselAttributesMap, attrCategoryFilter, attrSearch])
+
+  // Ensure selected attribute remains valid among registered attributes when changing vessel
+  useEffect(() => {
+    if (showAttributePicker && filteredPickerAttributes.length > 0) {
+      const hasPrimary = filteredPickerAttributes.some((a) => a.key === pickerAttrKey)
+      if (!hasPrimary) {
+        setPickerAttrKey(filteredPickerAttributes[0].key)
+      }
+      if (selectedWidget?.type === "heading" && pickerSecondaryAttrKey && pickerSecondaryAttrKey !== "none") {
+        const hasSecondary = filteredPickerAttributes.some((a) => a.key === pickerSecondaryAttrKey)
+        if (!hasSecondary) {
+          setPickerSecondaryAttrKey("none")
+        }
+      }
+    }
+  }, [showAttributePicker, pickerVesselId, filteredPickerAttributes])
 
   useEffect(() => {
     try {
@@ -4453,7 +4557,8 @@ export function MonitoringPage() {
   // Open Attribute Picker modal for currently selected widget
   function openAttributePicker() {
     if (!selectedWidget) return
-    setPickerVesselId(selectedWidget.vesselId || vessels[0]?.id || "")
+    const vId = selectedWidget.vesselId || vessels[0]?.id || ""
+    setPickerVesselId(vId)
     setPickerAttrKey(selectedWidget.attributeKey || (selectedWidget.type === "heading" ? "heading" : "sog"))
     setPickerSecondaryAttrKey(
       selectedWidget.secondaryAttributeKey !== undefined
@@ -4462,6 +4567,16 @@ export function MonitoringPage() {
     )
     setAttrSearch("")
     setAttrCategoryFilter("all")
+    if (vId && !vesselAttributesMap[vId]) {
+      api
+        .getAttributes(vId)
+        .then((attrs) => {
+          if (Array.isArray(attrs)) {
+            setVesselAttributesMap((prev) => ({ ...prev, [vId]: attrs }))
+          }
+        })
+        .catch(() => {})
+    }
     setShowAttributePicker(true)
   }
 
