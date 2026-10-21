@@ -3643,6 +3643,40 @@ export function MonitoringPage() {
     )
   })
 
+  // Hydrate sections from backend PostgreSQL database on mount
+  useEffect(() => {
+    let isMounted = true
+    api
+      .getMonitoringSections()
+      .then((dbSections) => {
+        if (!isMounted || !Array.isArray(dbSections) || dbSections.length === 0) return
+        const mapped: DashboardSection[] = dbSections.map((s) => ({
+          id: s.id,
+          name: s.name,
+          description: s.description,
+          widgets:
+            Array.isArray(s.widgets) && s.widgets.length > 0
+              ? s.widgets
+              : defaultSections.find((d) => d.id === s.id)?.widgets || [],
+          layouts:
+            s.layouts && typeof s.layouts === "object" && Object.keys(s.layouts).length > 0
+              ? s.layouts
+              : defaultSections.find((d) => d.id === s.id)?.layouts || { lg: [] },
+        }))
+        setSections(mapped)
+        setLastSavedSnapshot(JSON.stringify(mapped))
+        try {
+          localStorage.setItem("nauticore:v1:monitoring_sections", JSON.stringify(mapped))
+        } catch {}
+      })
+      .catch((err) => {
+        console.warn("Could not fetch monitoring sections from database:", err)
+      })
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
   // Sidebar Tabs: 'widgets' vs 'settings'
   const [sidebarTab, setSidebarTab] = useState<"widgets" | "settings">("widgets")
 
@@ -3918,6 +3952,12 @@ export function MonitoringPage() {
       localStorage.setItem("nauticore:v1:monitoring_sections", serialized)
       localStorage.setItem("nauticore:v1:active_section_id", activeSectionId)
       setLastSavedSnapshot(serialized)
+
+      // Persist to PostgreSQL database
+      api.saveMonitoringSections(sections).catch((err) => {
+        console.warn("Failed to persist dashboard sections to database:", err)
+      })
+
       setSaveToast({ type: "success", message: "Dashboard layout saved successfully!" })
       setTimeout(() => setSaveToast(null), 3000)
     } catch (err) {
@@ -4704,10 +4744,14 @@ export function MonitoringPage() {
                       confirmLabel: "Delete Section",
                       cancelLabel: "Cancel",
                       onConfirm: () => {
-                        const remaining = sections.filter((s) => s.id !== activeSection.id)
+                        const sectionToDeleteId = activeSection.id
+                        const remaining = sections.filter((s) => s.id !== sectionToDeleteId)
                         setSections(remaining)
                         setActiveSectionId(remaining[0].id)
                         setSelectedWidgetId(null)
+                        api.deleteMonitoringSection(sectionToDeleteId).catch((err) => {
+                          console.warn("Failed to delete section from database:", err)
+                        })
                       },
                     })
                   }}

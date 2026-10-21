@@ -66,7 +66,7 @@ export function LiveLogsPage() {
   }
 
   function exportCsv() {
-    const escape = (value: string) => `"${value.replaceAll('"', '""')}"`
+    const escape = (value: string) => `"${value.replace(/"/g, '""')}"`
     const rows = [
       [
         "Timestamp",

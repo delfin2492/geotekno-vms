@@ -198,4 +198,41 @@ export const api = {
       `/telemetry/history${query ? `?${query}` : ""}`,
     )
   },
+
+  // --- Monitoring Sections ---
+  getMonitoringSections(): Promise<MonitoringSection[]> {
+    return request<MonitoringSection[]>("/monitoring/sections")
+  },
+
+  saveMonitoringSections(sections: any[]): Promise<MonitoringSection[]> {
+    return request<MonitoringSection[]>("/monitoring/sections", {
+      method: "PUT",
+      body: JSON.stringify(sections),
+    })
+  },
+
+  upsertMonitoringSection(section: Partial<MonitoringSection>): Promise<MonitoringSection> {
+    return request<MonitoringSection>("/monitoring/sections", {
+      method: "POST",
+      body: JSON.stringify(section),
+    })
+  },
+
+  deleteMonitoringSection(id: string): Promise<{ success: boolean; deletedId: string }> {
+    return request<{ success: boolean; deletedId: string }>(`/monitoring/sections/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    })
+  },
 }
+
+export interface MonitoringSection {
+  id: string
+  name: string
+  description?: string
+  widgets?: any[]
+  layouts?: any
+  order_index?: number
+  created_at?: string
+  updated_at?: string
+}
+

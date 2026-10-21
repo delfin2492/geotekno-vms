@@ -2,6 +2,7 @@ const express = require('express');
 const { agentManager } = require('../agents/agentManager');
 const { assetManager } = require('../assets/assetManager');
 const { widgetManager } = require('../widgets/widgetManager');
+const sectionRepo = require('../widgets/sectionRepo');
 const { getRecentTrack, getLatestTelemetry, getHistoricalTelemetryLogs } = require('../db/telemetryRepo');
 const { logBuffer } = require('../logs/logBuffer');
 const {
@@ -158,6 +159,46 @@ function createApiRouter() {
     try {
       await widgetManager.deleteWidget(req.params.id);
       res.json({ success: true });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // MONITORING SECTIONS API (PostgreSQL DB)
+  // ==========================================
+  router.get(['/monitoring/sections', '/v1/monitoring/sections'], async (req, res) => {
+    try {
+      const sections = await sectionRepo.getAllSections();
+      res.json(sections);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.put(['/monitoring/sections', '/v1/monitoring/sections'], async (req, res) => {
+    try {
+      const sections = req.body;
+      const updated = await sectionRepo.saveAllSections(sections);
+      res.json(updated);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.post(['/monitoring/sections', '/v1/monitoring/sections'], async (req, res) => {
+    try {
+      const created = await sectionRepo.upsertSection(req.body);
+      res.json(created);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.delete(['/monitoring/sections/:id', '/v1/monitoring/sections/:id'], async (req, res) => {
+    try {
+      const result = await sectionRepo.deleteSection(req.params.id);
+      res.json(result);
     } catch (err) {
       res.status(400).json({ error: err.message });
     }

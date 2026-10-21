@@ -100,18 +100,38 @@ export function UserManagementPage() {
     sectionPermissions: {} as Record<string, { read: boolean; write: boolean }>,
   })
 
+  // Dynamic Monitoring Sections loaded from DB
+  const [monitoringSections, setMonitoringSections] = useState<{ key: string; label: string; desc: string }[]>(AVAILABLE_SECTIONS)
+
   const loadData = async () => {
     setLoading(true)
     setError(null)
     try {
-      const [usersRes, rolesRes, vesselsRes] = await Promise.all([
+      const [usersRes, rolesRes, vesselsRes, sectionsRes] = await Promise.all([
         authApi.listUsers(),
         authApi.listRoles(),
         api.getVessels(),
+        api.getMonitoringSections().catch(() => []),
       ])
       setUsers(usersRes.users)
       setRoles(rolesRes.roles)
       setVessels(vesselsRes)
+
+      if (Array.isArray(sectionsRes) && sectionsRes.length > 0) {
+        const dynamicList = sectionsRes.map((s) => ({
+          key: s.id,
+          label: s.name,
+          desc: s.description || `Section scope for ${s.name}`,
+        }))
+        if (!dynamicList.some((s) => s.key === "*")) {
+          dynamicList.push({
+            key: "*",
+            label: "Custom / Additional Sections",
+            desc: "Access to newly created dashboard sections and command centers",
+          })
+        }
+        setMonitoringSections(dynamicList)
+      }
     } catch (err: any) {
       setError(err.message || "Failed to load directory data.")
     } finally {
@@ -257,7 +277,7 @@ export function UserManagementPage() {
     })
 
     const defaultSections: Record<string, { read: boolean; write: boolean }> = {}
-    AVAILABLE_SECTIONS.forEach((s) => {
+    monitoringSections.forEach((s) => {
       defaultSections[s.key] = { read: true, write: false }
     })
 
@@ -294,9 +314,14 @@ export function UserManagementPage() {
     })
 
     const secPerms: Record<string, { read: boolean; write: boolean }> = {}
-    AVAILABLE_SECTIONS.forEach((s) => {
-      const existing = role.permissions?.sections?.[s.key]
-      secPerms[s.key] = {
+    // Ensure all sections currently loaded or previously configured in role are represented
+    const knownKeys = new Set([
+      ...monitoringSections.map((s) => s.key),
+      ...Object.keys(role.permissions?.sections || {}),
+    ])
+    knownKeys.forEach((key) => {
+      const existing = role.permissions?.sections?.[key]
+      secPerms[key] = {
         read: existing?.read ?? (role.id === "role_superadmin"),
         write: existing?.write ?? (role.id === "role_superadmin"),
       }
@@ -1170,7 +1195,7 @@ export function UserManagementPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {AVAILABLE_SECTIONS.map((sec) => {
+                        {monitoringSections.map((sec) => {
                           const current = roleFormData.sectionPermissions[sec.key] || { read: false, write: false }
                           return (
                             <tr key={sec.key} className="hover:bg-slate-50/60">

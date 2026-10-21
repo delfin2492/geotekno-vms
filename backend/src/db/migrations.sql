@@ -295,3 +295,26 @@ ON CONFLICT (email) DO UPDATE SET
     is_active = TRUE,
     role_id = 'role_superadmin';
 
+-- 15. Tabel Monitoring Dashboard Sections (Dynamic Sections & Layouts)
+CREATE TABLE IF NOT EXISTS core_monitoring_sections (
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    description TEXT DEFAULT '',
+    widgets JSONB DEFAULT '[]',
+    layouts JSONB DEFAULT '{}',
+    order_index INT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+INSERT INTO core_monitoring_sections (id, name, description, order_index)
+VALUES 
+    ('section-nav', 'Navigation & Maneuvering', 'Speed, heading, depth & navigation instruments', 1),
+    ('section-engine', 'Engine & Machinery', 'Machinery status, propulsion RPM & fuel diagnostics', 2),
+    ('section-bridge', 'Bridge Command Center', 'Consolidated command center navigation & radar console', 3)
+ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    order_index = EXCLUDED.order_index;
+
+
