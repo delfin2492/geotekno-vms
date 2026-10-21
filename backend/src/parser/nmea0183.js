@@ -180,15 +180,15 @@ function decodeAisPayload(payloadStr) {
       const imoRaw = parseInt(bits.slice(40, 70), 2);
       const imo = (imoRaw > 0 && imoRaw <= 9999999) ? String(imoRaw) : '';
       const callsign = decodeAisAscii(bits.slice(70, 112));
-      const vesselName = bits.length >= 312 ? decodeAisAscii(bits.slice(112, 312)) : '';
+      const vesselName = bits.length >= 232 ? decodeAisAscii(bits.slice(112, 232)) : '';
       let shipType = null;
       let lengthM = null;
       let beamM = null;
       let draughtM = null;
       let destination = '';
 
-      if (bits.length >= 320) {
-        const typeCode = parseInt(bits.slice(312, 320), 2);
+      if (bits.length >= 240) {
+        const typeCode = parseInt(bits.slice(232, 240), 2);
         if (typeCode === 52 || typeCode === 31 || typeCode === 32) shipType = 'Tug';
         else if (typeCode >= 80 && typeCode <= 89) shipType = 'Tanker';
         else if (typeCode >= 70 && typeCode <= 79) shipType = 'Cargo';
@@ -197,22 +197,24 @@ function decodeAisPayload(payloadStr) {
         else if (typeCode > 0) shipType = 'Special';
       }
 
-      if (bits.length >= 350) {
-        const dimA = parseInt(bits.slice(320, 329), 2);
-        const dimB = parseInt(bits.slice(329, 338), 2);
-        const dimC = parseInt(bits.slice(338, 344), 2);
-        const dimD = parseInt(bits.slice(344, 350), 2);
+      if (bits.length >= 270) {
+        const dimA = parseInt(bits.slice(240, 249), 2);
+        const dimB = parseInt(bits.slice(249, 258), 2);
+        const dimC = parseInt(bits.slice(258, 264), 2);
+        const dimD = parseInt(bits.slice(264, 270), 2);
         if (dimA + dimB > 0) lengthM = dimA + dimB;
         if (dimC + dimD > 0) beamM = dimC + dimD;
       }
 
-      if (bits.length >= 382) {
-        const draughtRaw = parseInt(bits.slice(374, 382), 2);
+      if (bits.length >= 302) {
+        const draughtRaw = parseInt(bits.slice(294, 302), 2);
         if (draughtRaw > 0) draughtM = parseFloat((draughtRaw / 10).toFixed(1));
       }
 
-      if (bits.length >= 502) {
-        destination = decodeAisAscii(bits.slice(382, 502));
+      if (bits.length >= 422) {
+        destination = decodeAisAscii(bits.slice(302, 422));
+      } else if (bits.length > 302) {
+        destination = decodeAisAscii(bits.slice(302));
       }
 
       return {

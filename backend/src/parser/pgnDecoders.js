@@ -398,15 +398,15 @@ function decodeNmea2000Payload(pgn, payload) {
           if (rawBeam !== 0xffff && rawBeam > 0) beamM = parseFloat((rawBeam * 0.1).toFixed(1));
         }
 
-        if (payload.length >= 49) {
-          const rawDraught = payload.readUInt16LE(47);
+        if (payload.length >= 53) {
+          const rawDraught = payload.readUInt16LE(51);
           if (rawDraught !== 0xffff && rawDraught > 0) draughtM = parseFloat((rawDraught * 0.01).toFixed(1));
         }
 
-        if (payload.length >= 69) {
-          destination = payload.subarray(49, 69).toString('ascii').replace(/[^\x20-\x7E]/g, '').replace(/[@_]/g, ' ').trim();
-        } else if (payload.length > 49) {
-          destination = payload.subarray(49).toString('ascii').replace(/[^\x20-\x7E]/g, '').replace(/[@_]/g, ' ').trim();
+        if (payload.length >= 73) {
+          destination = payload.subarray(53, 73).toString('ascii').replace(/[^\x20-\x7E]/g, '').replace(/[@_]/g, ' ').trim();
+        } else if (payload.length > 53) {
+          destination = payload.subarray(53).toString('ascii').replace(/[^\x20-\x7E]/g, '').replace(/[@_]/g, ' ').trim();
         }
 
         return {
