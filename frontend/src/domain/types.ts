@@ -39,9 +39,22 @@ export interface Vessel {
   rpm?: number | null
   engineLoad?: number | null
   windSpeed?: number | null
+  pitch?: number | null
+  roll?: number | null
+  rot?: number | null
+  waterTemp?: number | null
+  airTemp?: number | null
+  baroPressure?: number | null
+  windAngle?: number | null
+  hdop?: number | null
+  boostKpa?: number | null
+  batteryVolts?: number | null
+  batteryAmps?: number | null
   destination: string
   quality: DataQuality
   updatedAt: string
+  customAttributes?: Record<string, any>
+  [key: string]: any
 }
 
 export interface TrackPoint extends Position {
@@ -65,6 +78,11 @@ export interface AisTarget {
   bearing: number
   cpa: number
   tcpa: number
+  destination?: string | null
+  rot?: number | null
+  draughtM?: number | null
+  lengthM?: number | null
+  beamM?: number | null
   quality: DataQuality
   updatedAt: string
 }

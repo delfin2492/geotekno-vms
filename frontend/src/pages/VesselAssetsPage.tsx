@@ -1605,8 +1605,8 @@ export function VesselAssetsPage() {
                             ...vesselDraft,
                             agentIds: vesselDraft.agentIds.includes(agent.id)
                               ? vesselDraft.agentIds.filter(
-                                (id) => id !== agent.id,
-                              )
+                                  (id: string) => id !== agent.id,
+                                )
                               : [...vesselDraft.agentIds, agent.id],
                           })
                         }

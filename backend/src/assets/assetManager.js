@@ -210,12 +210,16 @@ class AssetManager {
       currentMeta.imo = String(imo);
       changed = true;
     }
+    if (destination && destination.trim() && (!currentMeta.destination || currentMeta.destination !== destination.trim())) {
+      currentMeta.destination = destination.trim();
+      changed = true;
+    }
 
     if (changed) {
       item.info.metadata = currentMeta;
       try {
         await pool.query('UPDATE core_assets SET metadata = $1 WHERE id = $2', [JSON.stringify(currentMeta), assetId]);
-        console.log(`[ASSET MANAGER] Auto-updated Identifiers untuk ${item.info.name} (${assetId}): MMSI=${currentMeta.mmsi || '-'}, CallSign=${currentMeta.callsign || '-'}, IMO=${currentMeta.imo || '-'}`);
+        console.log(`[ASSET MANAGER] Auto-updated Identifiers untuk ${item.info.name} (${assetId}): MMSI=${currentMeta.mmsi || '-'}, CallSign=${currentMeta.callsign || '-'}, IMO=${currentMeta.imo || '-'}, Destination=${currentMeta.destination || '-'}`);
       } catch (err) {
         console.warn('[ASSET MANAGER WARN] Gagal menyimpan auto-update identifiers:', err.message);
       }
@@ -368,6 +372,24 @@ class AssetManager {
       { namespace: 'electrical', keyName: 'battery_current', displayName: 'DC Battery Bank Current', unit: 'A', pointingSource: 'PGN 127508 Battery Status', pgnSource: 'PGN 127508 Battery Status' },
     ];
 
+    // Sertakan sinyal dinamis yang terdeteksi dari Custom Decoder Script
+    const targetAsset = this.assets.get(assetId);
+    if (targetAsset && targetAsset.state) {
+      const snap = targetAsset.state.getSnapshot();
+      if (snap && snap.custom) {
+        for (const [cKey, cVal] of Object.entries(snap.custom)) {
+          potentialSignals.push({
+            namespace: 'custom',
+            keyName: cKey,
+            displayName: cKey.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
+            unit: typeof cVal === 'number' ? 'val' : '',
+            pointingSource: 'Custom Decoder Script',
+            pgnSource: 'Custom Decoder Script',
+          });
+        }
+      }
+    }
+
     return potentialSignals.filter((p) => !registeredKeys.has(`${p.namespace}.${p.keyName}`));
   }
 }
@@ -416,6 +438,14 @@ function resolveAttributeLiveValue(snap, namespace, keyName) {
 
   if (ns === 'electrical') {
     if (k === 'battery_volts') return (snap.engine && snap.engine.battery_volts !== null && snap.engine.battery_volts !== undefined) ? parseFloat(snap.engine.battery_volts.toFixed(1)) : null;
+    if (k === 'battery_current' || k === 'battery_amps') return (snap.engine && snap.engine.battery_amps !== null && snap.engine.battery_amps !== undefined) ? parseFloat(snap.engine.battery_amps.toFixed(1)) : null;
+    if (k === 'battery_temp' || k === 'battery_temp_c') return (snap.engine && snap.engine.battery_temp_c !== null && snap.engine.battery_temp_c !== undefined) ? parseFloat(snap.engine.battery_temp_c.toFixed(1)) : null;
+  }
+
+  // Cek Custom Attributes dari Script Decoder
+  if (snap.custom) {
+    if (snap.custom[keyName] !== undefined && snap.custom[keyName] !== null) return snap.custom[keyName];
+    if (snap.custom[k] !== undefined && snap.custom[k] !== null) return snap.custom[k];
   }
 
   return null;

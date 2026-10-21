@@ -839,6 +839,10 @@ export function MarineTrafficPage() {
                       <span className="font-mono font-semibold text-slate-800">{selectedTarget.callSign || "—"}</span>
                     </div>
                     <div className="flex items-center justify-between py-1.5">
+                      <span className="text-slate-500">Destination</span>
+                      <span className="font-semibold text-slate-800 truncate max-w-[150px]">{selectedTarget.destination || "—"}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-1.5">
                       <span className="text-slate-500">Nav status</span>
                       <span className="font-semibold text-slate-800 truncate max-w-[150px]">{selectedTarget.status}</span>
                     </div>
@@ -854,6 +858,24 @@ export function MarineTrafficPage() {
                       <span className="text-slate-500">Heading</span>
                       <span className="font-mono font-semibold text-slate-800">{Math.round(selectedTarget.heading)}°</span>
                     </div>
+                    {selectedTarget.rot !== null && selectedTarget.rot !== undefined && (
+                      <div className="flex items-center justify-between py-1.5">
+                        <span className="text-slate-500">Rate of turn (ROT)</span>
+                        <span className="font-mono font-semibold text-slate-800">{selectedTarget.rot > 0 ? `+${selectedTarget.rot}` : selectedTarget.rot}°/min</span>
+                      </div>
+                    )}
+                    {(selectedTarget.lengthM || selectedTarget.beamM) && (
+                      <div className="flex items-center justify-between py-1.5">
+                        <span className="text-slate-500">Dimensions</span>
+                        <span className="font-mono font-semibold text-slate-800">{selectedTarget.lengthM || "—"}m × {selectedTarget.beamM || "—"}m</span>
+                      </div>
+                    )}
+                    {selectedTarget.draughtM !== null && selectedTarget.draughtM !== undefined && (
+                      <div className="flex items-center justify-between py-1.5">
+                        <span className="text-slate-500">Max draught</span>
+                        <span className="font-mono font-semibold text-slate-800">{selectedTarget.draughtM.toFixed(1)} m</span>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between py-1.5">
                       <span className="text-slate-500">Distance</span>
                       <span className="font-mono font-semibold text-slate-800">{selectedTarget.distanceNm.toFixed(1)} NM</span>

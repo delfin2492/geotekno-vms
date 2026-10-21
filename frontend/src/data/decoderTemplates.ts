@@ -17,29 +17,34 @@ export const DECODER_TEMPLATES: Record<string, DecoderTemplateInfo> = {
     code: `/**
  * Hybrid Payload Decoder (NMEA 2000 CAN + NMEA 0183 ASCII)
  * @param {string|Buffer} payload - Raw byte / ASCII sentence dari gateway TCP
- * @param {Object} context - { agentId, port }
- * @returns {Object} Decoded telemetry object
+ * @param {Object} context - { agentId, port, vesselId, rawBytes }
+ * @returns {Object} Setiap key dalam objek ini OTOMATIS menjadi atribut live kapal & widget dashboard!
  */
 function decode(payload, context) {
   const text = String(payload).trim();
 
-  // 1. Deteksi kalimat NMEA 0183 ($ atau !)
-  if (text.startsWith('$') || text.startsWith('!')) {
+  // 1. Contoh: Tangkap dan ekstrak kalimat NMEA 0183 baru / custom (misal: Flowmeter BBM $PFLW)
+  if (text.startsWith('$PFLW')) {
     const parts = text.split(',');
     return {
-      protocol: 'NMEA0183',
-      sentenceType: parts[0],
-      raw: text,
-      timestamp: new Date().toISOString()
+      fuel_flow_lph: parseFloat(parts[2]) || 0, // Otomatis muncul di Monitoring Dashboard!
+      fuel_temp_c: parseFloat(parts[3]) || 0
     };
   }
 
-  // 2. Deteksi frame CAN biner CANET-200
+  // 2. Deteksi kalimat NMEA 0183 umum
+  if (text.startsWith('$') || text.startsWith('!')) {
+    const parts = text.split(',');
+    return {
+      sentenceType: parts[0],
+      rawSentence: text
+    };
+  }
+
+  // 3. Frame CAN biner
   return {
     protocol: 'NMEA2000',
-    mode: 'CANET200_AUTO',
-    byteLength: typeof payload === 'string' ? payload.length : payload.byteLength,
-    timestamp: new Date().toISOString()
+    status: 'ACTIVE'
   };
 }`,
   },
@@ -52,19 +57,14 @@ function decode(payload, context) {
     code: `/**
  * NMEA 2000 CANET-200 Frame Decoder
  * @param {string|Buffer} payload - 13-byte CAN frame
- * @param {Object} context - { agentId, port }
+ * @param {Object} context - { agentId, port, vesselId }
+ * @returns {Object} Nilai yang dikembalikan otomatis terinjeksi ke kapal
  */
 function decode(payload, context) {
-  // Format paket CANET-200:
-  // Byte 0: Info flag (0x08 = Standard, 0x88 = Extended Frame)
-  // Byte 1-4: CAN Identifier (PGN)
-  // Byte 5-12: Data Payload (8 bytes)
-
+  // Setiap property dalam objek ini langsung ter-pointing ke atribut kapal
   return {
-    protocol: 'NMEA2000',
-    status: 'ACTIVE',
-    customScaleMultiplier: 1.0,
-    timestamp: new Date().toISOString()
+    can_active: true,
+    last_processed: Date.now()
   };
 }`,
   },
@@ -77,27 +77,32 @@ function decode(payload, context) {
     code: `/**
  * NMEA 0183 Sentence Decoder
  * @param {string} payload - NMEA sentence string
- * @param {Object} context - { agentId, port }
+ * @param {Object} context - { agentId, port, vesselId }
+ * @returns {Object} Property yang dikembalikan langsung masuk ke dashboard & widget
  */
 function decode(payload, context) {
   const line = String(payload).trim();
   const parts = line.split(',');
   const sentence = parts[0];
 
-  const result = {
-    protocol: 'NMEA0183',
-    sentence: sentence,
-    valid: true,
-    timestamp: new Date().toISOString()
-  };
-
-  // Contoh ekstraksi SOG (Speed) dari $GPRMC:
-  if (sentence.endsWith('RMC') && parts.length >= 8) {
-    result.status = parts[2] === 'A' ? 'Valid' : 'Warning';
-    result.sogKnots = parseFloat(parts[7]) || 0;
+  // Contoh: Ekstrak sensor kustom atau tangkap data baru
+  if (sentence.includes('RMC') && parts.length >= 8) {
+    return {
+      sog: parseFloat(parts[7]) || 0,
+      cog: parseFloat(parts[8]) || 0
+    };
   }
 
-  return result;
+  // Menambahkan sensor baru (misal: flowmeter $PFLW,24.5,LPH)
+  if (sentence.startsWith('$PFLW') && parts.length >= 2) {
+    return {
+      fuel_flow_lph: parseFloat(parts[1]) || 0
+    };
+  }
+
+  return {
+    sentenceType: sentence
+  };
 }`,
   },
   MODBUS: {

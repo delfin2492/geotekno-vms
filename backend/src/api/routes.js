@@ -320,6 +320,19 @@ function createApiRouter() {
       ? Number(meta.engineLoad) 
       : (rpm !== null ? Math.min(100, Math.round(rpm / 20)) : null);
 
+    const pitch = mot && mot.pitch_deg !== null && mot.pitch_deg !== undefined ? Number(mot.pitch_deg) : null;
+    const roll = mot && mot.roll_deg !== null && mot.roll_deg !== undefined ? Number(mot.roll_deg) : null;
+    const rot = mot && mot.rot_deg_s !== null && mot.rot_deg_s !== undefined ? Number(mot.rot_deg_s) : null;
+    const waterTemp = env && env.water_temp_c !== null && env.water_temp_c !== undefined ? Number(env.water_temp_c) : null;
+    const airTemp = env && env.air_temp_c !== null && env.air_temp_c !== undefined ? Number(env.air_temp_c) : null;
+    const baroPressure = env && env.baro_pressure_hpa !== null && env.baro_pressure_hpa !== undefined ? Number(env.baro_pressure_hpa) : null;
+    const windAngle = env && env.wind_angle_deg !== null && env.wind_angle_deg !== undefined ? Number(env.wind_angle_deg) : null;
+    const hdop = nav && nav.hdop !== null && nav.hdop !== undefined ? Number(nav.hdop) : null;
+    const boostKpa = eng && eng.boost_kpa !== null && eng.boost_kpa !== undefined ? Number(eng.boost_kpa) : null;
+    const batteryVolts = eng && eng.battery_volts !== null && eng.battery_volts !== undefined ? Number(eng.battery_volts) : null;
+    const batteryAmps = eng && eng.battery_amps !== null && eng.battery_amps !== undefined ? Number(eng.battery_amps) : null;
+    const customAttrs = (snap && snap.custom) ? snap.custom : {};
+
     return {
       id: info.id,
       name: info.name,
@@ -339,9 +352,22 @@ function createApiRouter() {
       rpm: rpm,
       engineLoad: engineLoadVal,
       windSpeed: windSpeed,
+      pitch: pitch,
+      roll: roll,
+      rot: rot,
+      waterTemp: waterTemp,
+      airTemp: airTemp,
+      baroPressure: baroPressure,
+      windAngle: windAngle,
+      hdop: hdop,
+      boostKpa: boostKpa,
+      batteryVolts: batteryVolts,
+      batteryAmps: batteryAmps,
       destination: meta.destination || '',
       quality: quality,
       updatedAt: (snap && snap.timestamp_utc) ? snap.timestamp_utc : (info.created_at || meta.created_at || null),
+      customAttributes: customAttrs,
+      ...customAttrs,
     };
   }
 

@@ -196,6 +196,14 @@ export function FleetProvider({ children }: { children: ReactNode }) {
       addVessel: (draft) => {
         const tempId = `vessel_${Math.random().toString(16).slice(2, 10)}`
         const vessel: Vessel = {
+          name: draft.name,
+          type: draft.type,
+          imo: draft.imo || "",
+          mmsi: draft.mmsi || "",
+          callSign: draft.callSign || "",
+          registerContent: draft.registerContent || "",
+          agentIds: draft.agentIds || [],
+          destination: draft.destination || "",
           ...draft,
           id: tempId,
           status: "In Port",

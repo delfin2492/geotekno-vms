@@ -385,12 +385,40 @@ function decodeNmea2000Payload(pgn, payload) {
           else if (typeCode >= 60 && typeCode <= 69) shipType = 'Passenger';
           else if (typeCode === 30) shipType = 'Fishing';
         }
+
+        let lengthM = null;
+        let beamM = null;
+        let draughtM = null;
+        let destination = '';
+
+        if (payload.length >= 41) {
+          const rawLen = payload.readUInt16LE(37);
+          const rawBeam = payload.readUInt16LE(39);
+          if (rawLen !== 0xffff && rawLen > 0) lengthM = parseFloat((rawLen * 0.1).toFixed(1));
+          if (rawBeam !== 0xffff && rawBeam > 0) beamM = parseFloat((rawBeam * 0.1).toFixed(1));
+        }
+
+        if (payload.length >= 49) {
+          const rawDraught = payload.readUInt16LE(47);
+          if (rawDraught !== 0xffff && rawDraught > 0) draughtM = parseFloat((rawDraught * 0.01).toFixed(1));
+        }
+
+        if (payload.length >= 69) {
+          destination = payload.subarray(49, 69).toString('ascii').replace(/[^\x20-\x7E]/g, '').replace(/[@_]/g, ' ').trim();
+        } else if (payload.length > 49) {
+          destination = payload.subarray(49).toString('ascii').replace(/[^\x20-\x7E]/g, '').replace(/[@_]/g, ' ').trim();
+        }
+
         return {
           mmsi,
           imo,
           callsign,
           vessel_name: name || `MMSI-${mmsi}`,
           ship_type: shipType,
+          length_m: lengthM,
+          beam_m: beamM,
+          draught_m: draughtM,
+          destination,
           ais_class: 'A',
         };
       }
@@ -408,9 +436,19 @@ function decodeNmea2000Payload(pgn, payload) {
         if (payload.length < 10) return null;
         const mmsi = payload.readUInt32LE(1);
         const callsign = payload.length >= 16 ? payload.subarray(9, 16).toString('ascii').replace(/[^\x20-\x7E]/g, '').replace(/[@_]/g, '').trim() : '';
+        let lengthM = null;
+        let beamM = null;
+        if (payload.length >= 25) {
+          const rawLen = payload.readUInt16LE(21);
+          const rawBeam = payload.readUInt16LE(23);
+          if (rawLen !== 0xffff && rawLen > 0) lengthM = parseFloat((rawLen * 0.1).toFixed(1));
+          if (rawBeam !== 0xffff && rawBeam > 0) beamM = parseFloat((rawBeam * 0.1).toFixed(1));
+        }
         return {
           mmsi,
           callsign,
+          length_m: lengthM,
+          beam_m: beamM,
           ais_class: 'B',
         };
       }

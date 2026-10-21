@@ -239,6 +239,58 @@ function formatDateTimeWithSeconds(isoString?: string): string {
 // -------------------------------------------------------------
 // TELEMETRY ATTRIBUTES SPECIFICATION
 // -------------------------------------------------------------
+function getCategoryFromNamespace(ns?: string, key?: string): "Navigation" | "Machinery" | "Environment" | "System" {
+  const n = (ns || "").toLowerCase()
+  const k = (key || "").toLowerCase()
+  if (n === "machinery" || k.includes("rpm") || k.includes("engine") || k.includes("fuel")) return "Machinery"
+  if (n === "environment" || k.includes("wind") || k.includes("temp") || k.includes("depth") || k.includes("weather")) return "Environment"
+  if (n === "system" || k.includes("position") || k.includes("gps") || k.includes("gnss") || k.includes("hdop") || k.includes("gateway") || k.includes("link")) return "System"
+  return "Navigation"
+}
+
+function getIconForAttribute(key: string, _category?: string) {
+  const k = key.toLowerCase()
+  if (k.includes("sog") || k.includes("speed")) return Waves
+  if (k.includes("heading") || k.includes("compass")) return Compass
+  if (k.includes("cog") || k.includes("course")) return CircleGauge
+  if (k.includes("depth")) return Waves
+  if (k.includes("wind")) return Wind
+  if (k.includes("temp")) return Thermometer
+  if (k.includes("rpm")) return Activity
+  if (k.includes("engine") || k.includes("load")) return Gauge
+  if (k.includes("fuel")) return Fuel
+  if (k.includes("pos") || k.includes("gps") || k.includes("gnss") || k.includes("coord")) return Map
+  if (k.includes("gate") || k.includes("link") || k.includes("server")) return Server
+  if (k.includes("pitch") || k.includes("roll") || k.includes("motion")) return Navigation
+  return Activity
+}
+
+export function getVesselAttributeValue(vessel?: Vessel | null, attrKey?: string): number | null {
+  if (!vessel || !attrKey) return null
+  const k = attrKey.toLowerCase().replace(/[^a-z0-9]/g, "")
+  if (k === "sog" || k === "speed") return vessel.sog ?? null
+  if (k === "heading" || k === "compass") return vessel.heading ?? null
+  if (k === "cog" || k === "course") return vessel.cog ?? null
+  if (k === "depth") return vessel.depth ?? null
+  if (k === "windspeed" || k === "wind") return vessel.windSpeed ?? null
+  if (k === "pitch" || k === "pitchdeg" || k === "vesselpitch") return vessel.pitch ?? null
+  if (k === "roll" || k === "rolldeg" || k === "vesselroll") return vessel.roll ?? null
+  if (k === "rot" || k === "rateofturn") return vessel.rot ?? null
+  if (k === "watertemp" || k === "watertemperature" || k === "temp") return vessel.waterTemp ?? null
+  if (k === "windangle") return vessel.windAngle ?? null
+  if (k === "rpm" || k === "enginerpm") return vessel.rpm ?? null
+  if (k === "fuel") return vessel.fuel ?? null
+  if (k === "engineload") return vessel.engineLoad ?? null
+  if (k === "hdop") return vessel.hdop ?? null
+  const fallback = (vessel as any)[attrKey] ?? (vessel as any)[k]
+  if (typeof fallback === "number") return fallback
+  if (typeof fallback === "string") {
+    const parsed = parseFloat(fallback)
+    return isNaN(parsed) ? null : parsed
+  }
+  return null
+}
+
 export interface VesselAttributeMeta {
   key: string
   label: string
@@ -248,6 +300,119 @@ export interface VesselAttributeMeta {
   icon: any
   getValue: (v: Vessel) => any
   getFormatted: (v: Vessel) => string
+}
+
+export function buildDynamicVesselAttributes(
+  vessel?: Vessel | null,
+  registeredAttrs?: AssetAttribute[]
+): VesselAttributeMeta[] {
+  if (!vessel) return []
+
+  const items: VesselAttributeMeta[] = []
+  const seenKeys = new Set<string>()
+
+  const formatAttrVal = (key: string, v: Vessel, unit: string) => {
+    const val = getVesselAttributeValue(v, key)
+    if (val === null || val === undefined) return "—"
+    const k = key.toLowerCase()
+    if (k.includes("heading") || k.includes("cog") || k.includes("rpm") || k.includes("windangle") || k.includes("wind_angle")) {
+      return `${Math.round(val)} ${unit}`.trim()
+    }
+    return `${formatNum(val, 1)} ${unit}`.trim()
+  }
+
+  // 1. Process attributes registered in DB (core_asset_attributes)
+  if (Array.isArray(registeredAttrs) && registeredAttrs.length > 0) {
+    for (const attr of registeredAttrs) {
+      const cleanKey = attr.keyName.toLowerCase().replace(/[^a-z0-9]/g, "")
+      if (seenKeys.has(cleanKey)) continue
+      seenKeys.add(cleanKey)
+
+      const rawCat = getCategoryFromNamespace(attr.namespace, attr.keyName)
+      const category: "Navigation" | "Machinery" | "Environment" | "Vessel Info" =
+        rawCat === "System" ? "Vessel Info" : rawCat
+      const icon = getIconForAttribute(attr.keyName, category)
+      const unit = attr.unit || ""
+
+      let recommendedType: WidgetType = "telemetry"
+      if (cleanKey === "sog" || cleanKey === "speed" || cleanKey === "rpm") {
+        recommendedType = "speed"
+      } else if (cleanKey === "heading" || cleanKey === "compass") {
+        recommendedType = "heading"
+      } else if (cleanKey === "position") {
+        recommendedType = "map"
+      }
+
+      items.push({
+        key: attr.keyName,
+        label: attr.displayName || attr.keyName,
+        category,
+        unit,
+        recommendedType,
+        icon,
+        getValue: (v: Vessel) => {
+          const live = getVesselAttributeValue(v, attr.keyName)
+          if (live !== null && live !== undefined) return live
+          return attr.liveValue !== null && attr.liveValue !== undefined ? Number(attr.liveValue) : null
+        },
+        getFormatted: (v: Vessel) => {
+          const live = getVesselAttributeValue(v, attr.keyName)
+          if (live !== null && live !== undefined) {
+            return formatAttrVal(attr.keyName, v, unit)
+          }
+          if (attr.liveValue !== null && attr.liveValue !== undefined) {
+            const num = Number(attr.liveValue)
+            const numStr = !isNaN(num) ? (Number.isInteger(num) ? `${num}` : formatNum(num, 1)) : String(attr.liveValue)
+            return `${numStr} ${unit}`.trim()
+          }
+          return "—"
+        },
+      })
+    }
+  }
+
+  // 2. Also include live telemetry fields from vessel payload if not already in registeredAttrs
+  const standardFields: {
+    key: string
+    label: string
+    unit: string
+    category: "Navigation" | "Machinery" | "Environment" | "Vessel Info"
+    val: any
+    type: WidgetType
+  }[] = [
+    { key: "sog", label: "Speed Over Ground (SOG)", unit: "knots", category: "Navigation", val: vessel.sog, type: "speed" },
+    { key: "heading", label: "Heading & Compass", unit: "deg", category: "Navigation", val: vessel.heading, type: "heading" },
+    { key: "cog", label: "Course Over Ground (COG)", unit: "deg", category: "Navigation", val: vessel.cog, type: "telemetry" },
+    { key: "depth", label: "Water Depth (Echosounder)", unit: "m", category: "Navigation", val: vessel.depth, type: "telemetry" },
+    { key: "pitch", label: "Vessel Pitch Angle", unit: "deg", category: "Navigation", val: vessel.pitch, type: "telemetry" },
+    { key: "roll", label: "Vessel Roll Angle", unit: "deg", category: "Navigation", val: vessel.roll, type: "telemetry" },
+    { key: "windSpeed", label: "Wind Speed", unit: "kn", category: "Environment", val: vessel.windSpeed, type: "telemetry" },
+    { key: "windAngle", label: "Apparent Wind Angle", unit: "deg", category: "Environment", val: vessel.windAngle, type: "telemetry" },
+    { key: "waterTemp", label: "Sea Water Temperature", unit: "°C", category: "Environment", val: vessel.waterTemp, type: "telemetry" },
+    { key: "fuel", label: "Fuel Tank Reserve", unit: "%", category: "Machinery", val: vessel.fuel, type: "telemetry" },
+    { key: "rpm", label: "Main Engine RPM", unit: "RPM", category: "Machinery", val: vessel.rpm, type: "speed" },
+    { key: "engineLoad", label: "Engine Load", unit: "%", category: "Machinery", val: vessel.engineLoad, type: "speed" },
+    { key: "position", label: "GNSS Position (Map)", unit: "lat/lng", category: "Navigation", val: vessel.position, type: "map" },
+  ]
+
+  for (const std of standardFields) {
+    const cleanKey = std.key.toLowerCase().replace(/[^a-z0-9]/g, "")
+    if (!seenKeys.has(cleanKey) && std.val !== null && std.val !== undefined) {
+      seenKeys.add(cleanKey)
+      items.push({
+        key: std.key,
+        label: std.label,
+        category: std.category,
+        unit: std.unit,
+        recommendedType: std.type,
+        icon: getIconForAttribute(std.key, std.category),
+        getValue: (v: Vessel) => getVesselAttributeValue(v, std.key),
+        getFormatted: (v: Vessel) => formatAttrVal(std.key, v, std.unit),
+      })
+    }
+  }
+
+  return items
 }
 
 export const VESSEL_ATTRIBUTES: VesselAttributeMeta[] = [
@@ -1088,7 +1253,13 @@ function extractMetricValue(rec: any, key: string, fallbackVal: number): number 
       val = rec.rot_deg_s ?? rec.rot
       break
     default:
-      val = rec[key] ?? rec[`${key}_deg`] ?? rec[`${key}_m`] ?? rec[`${key}_knots`]
+      val =
+        rec[key] ??
+        rec[`${key}_deg`] ??
+        rec[`${key}_m`] ??
+        rec[`${key}_knots`] ??
+        rec.attributes?.[key] ??
+        rec.data?.[key]
   }
   const num = typeof val === "number" ? val : typeof val === "string" ? parseFloat(val) : NaN
   return isNaN(num) ? fallbackVal : num
@@ -2164,32 +2335,6 @@ interface TelemetryRow {
   lastSeen: string
 }
 
-function getCategoryFromNamespace(ns?: string, key?: string): "Navigation" | "Machinery" | "Environment" | "System" {
-  const n = (ns || "").toLowerCase()
-  const k = (key || "").toLowerCase()
-  if (n === "machinery" || k.includes("rpm") || k.includes("engine") || k.includes("fuel")) return "Machinery"
-  if (n === "environment" || k.includes("wind") || k.includes("temp") || k.includes("depth") || k.includes("weather")) return "Environment"
-  if (n === "system" || k.includes("position") || k.includes("gps") || k.includes("gnss") || k.includes("hdop") || k.includes("gateway") || k.includes("link")) return "System"
-  return "Navigation"
-}
-
-function getIconForAttribute(key: string, _category: string) {
-  const k = key.toLowerCase()
-  if (k.includes("sog") || k.includes("speed")) return Waves
-  if (k.includes("heading") || k.includes("compass")) return Compass
-  if (k.includes("cog") || k.includes("course")) return CircleGauge
-  if (k.includes("depth")) return Waves
-  if (k.includes("wind")) return Wind
-  if (k.includes("temp")) return Thermometer
-  if (k.includes("rpm")) return Activity
-  if (k.includes("engine") || k.includes("load")) return Gauge
-  if (k.includes("fuel")) return Fuel
-  if (k.includes("pos") || k.includes("gps") || k.includes("gnss") || k.includes("coord")) return Map
-  if (k.includes("gate") || k.includes("link") || k.includes("server")) return Server
-  if (k.includes("pitch") || k.includes("roll") || k.includes("motion")) return Navigation
-  return Activity
-}
-
 function TableWidget({
   vessel,
   config,
@@ -2974,29 +3119,32 @@ function DynamicAttributeCard({
   height?: number
 }) {
   const meta = VESSEL_ATTRIBUTES.find((a) => a.key === attributeKey)
-  const Icon = meta?.icon || Activity
+  const Icon = meta?.icon || getIconForAttribute(attributeKey, "")
   let valDisplay = "—"
   const decimals = typeof config?.decimals === "number" ? config.decimals : 1
   let unitDisplay = config?.unit || meta?.unit || ""
 
-  if (attributeKey === "sog") {
-    valDisplay = formatNum(vessel.sog, decimals)
-  } else if (attributeKey === "heading") {
-    valDisplay = `${Math.round(vessel.heading ?? 0)}`
-  } else if (attributeKey === "cog") {
-    valDisplay = `${Math.round(vessel.cog ?? 0)}`
-  } else if (attributeKey === "depth") {
-    valDisplay = formatNum(vessel.depth, decimals)
-  } else if (attributeKey === "fuel") {
-    valDisplay = formatNum(vessel.fuel, typeof config?.decimals === "number" ? config.decimals : 0)
-  } else if (attributeKey === "rpm") {
-    valDisplay = vessel.rpm ? `${Math.round(vessel.rpm)}` : "—"
-  } else if (attributeKey === "engineLoad") {
-    valDisplay = formatNum(vessel.engineLoad, typeof config?.decimals === "number" ? config.decimals : 0)
-  } else if (attributeKey === "windSpeed") {
-    valDisplay = formatNum(vessel.windSpeed, decimals)
+  const numVal = getVesselAttributeValue(vessel, attributeKey)
+  if (numVal !== null && numVal !== undefined) {
+    const k = attributeKey.toLowerCase()
+    if (k.includes("heading") || k.includes("cog") || k.includes("rpm") || k.includes("windangle") || k.includes("wind_angle")) {
+      valDisplay = `${Math.round(numVal)}`
+    } else {
+      valDisplay = formatNum(numVal, decimals)
+    }
+  } else if (attributeKey === "position") {
+    valDisplay = vessel.position ? `${formatNum(vessel.position.lat, 4)}°, ${formatNum(vessel.position.lng, 4)}°` : "No Fix"
   } else if (meta) {
     valDisplay = meta.getFormatted(vessel)
+  }
+
+  if (!unitDisplay) {
+    const k = attributeKey.toLowerCase()
+    if (k.includes("pitch") || k.includes("roll") || k.includes("angle") || k.includes("heading") || k.includes("cog")) unitDisplay = "deg"
+    else if (k.includes("temp")) unitDisplay = "°C"
+    else if (k.includes("speed") || k.includes("sog")) unitDisplay = "kn"
+    else if (k.includes("depth")) unitDisplay = "m"
+    else if (k.includes("rpm")) unitDisplay = "RPM"
   }
 
   // Adaptive scale tier based on widget width and height
@@ -3084,41 +3232,33 @@ function KpiWidgetCard({
   height?: number
 }) {
   const meta = VESSEL_ATTRIBUTES.find((a) => a.key === attributeKey)
-  const Icon = meta?.icon || Zap
+  const Icon = meta?.icon || getIconForAttribute(attributeKey, "") || Zap
   const decimals = typeof config?.decimals === "number" ? config.decimals : 1
-  const unitDisplay = config?.unit || meta?.unit || ""
+  let unitDisplay = config?.unit || meta?.unit || ""
+  if (!unitDisplay) {
+    const k = attributeKey.toLowerCase()
+    if (k.includes("pitch") || k.includes("roll") || k.includes("angle") || k.includes("heading") || k.includes("cog")) unitDisplay = "deg"
+    else if (k.includes("temp")) unitDisplay = "°C"
+    else if (k.includes("speed") || k.includes("sog")) unitDisplay = "kn"
+    else if (k.includes("depth")) unitDisplay = "m"
+    else if (k.includes("rpm")) unitDisplay = "RPM"
+  }
 
   // Time filter state (Hour, Day, Weekly, Month, Year) - Default 'day'
   const [timeFilter, setTimeFilter] = useState<TimeFilterOption>("day")
 
   // Current live sensor value
-  let rawVal = 0
+  const numVal = getVesselAttributeValue(vessel, attributeKey)
+  let rawVal = numVal ?? 0
   let valDisplay = "—"
 
-  if (attributeKey === "sog") {
-    rawVal = vessel.sog ?? 0
-    valDisplay = formatNum(vessel.sog, decimals)
-  } else if (attributeKey === "heading") {
-    rawVal = vessel.heading ?? 0
-    valDisplay = `${Math.round(vessel.heading ?? 0)}`
-  } else if (attributeKey === "cog") {
-    rawVal = vessel.cog ?? 0
-    valDisplay = `${Math.round(vessel.cog ?? 0)}`
-  } else if (attributeKey === "depth") {
-    rawVal = vessel.depth ?? 0
-    valDisplay = formatNum(vessel.depth, decimals)
-  } else if (attributeKey === "fuel") {
-    rawVal = vessel.fuel ?? 0
-    valDisplay = formatNum(vessel.fuel, typeof config?.decimals === "number" ? config.decimals : 0)
-  } else if (attributeKey === "rpm") {
-    rawVal = vessel.rpm ?? 0
-    valDisplay = vessel.rpm ? `${Math.round(vessel.rpm)}` : "—"
-  } else if (attributeKey === "engineLoad") {
-    rawVal = vessel.engineLoad ?? 0
-    valDisplay = formatNum(vessel.engineLoad, typeof config?.decimals === "number" ? config.decimals : 0)
-  } else if (attributeKey === "windSpeed") {
-    rawVal = vessel.windSpeed ?? 0
-    valDisplay = formatNum(vessel.windSpeed, decimals)
+  if (numVal !== null && numVal !== undefined) {
+    const k = attributeKey.toLowerCase()
+    if (k.includes("heading") || k.includes("cog") || k.includes("rpm") || k.includes("windangle") || k.includes("wind_angle")) {
+      valDisplay = `${Math.round(numVal)}`
+    } else {
+      valDisplay = formatNum(numVal, decimals)
+    }
   } else if (meta) {
     valDisplay = meta.getFormatted(vessel)
     const parsed = parseFloat(valDisplay)
@@ -3321,26 +3461,40 @@ function WidgetContent({
   const meta = VESSEL_ATTRIBUTES.find((a) => a.key === widget.attributeKey)
 
   if (widget.type === "speed") {
-    const rawVal = meta ? meta.getValue(vessel) : vessel.sog
+    const rawVal = getVesselAttributeValue(vessel, widget.attributeKey) ?? (meta ? meta.getValue(vessel) : vessel.sog)
+    const attrClean = (widget.attributeKey || "").toLowerCase()
+    const isAngle = attrClean.includes("pitch") || attrClean.includes("roll")
+    const isTemp = attrClean.includes("temp")
+    const isRpm = attrClean.includes("rpm")
+    const isWindAngle = attrClean.includes("windangle") || attrClean.includes("wind_angle")
+
     const defaultMax =
-      widget.attributeKey === "rpm"
+      isRpm
         ? 3000
+        : isAngle
+        ? 45
+        : isTemp
+        ? 50
+        : isWindAngle
+        ? 180
         : widget.attributeKey === "engineLoad" || widget.attributeKey === "fuel"
         ? 100
         : 24
-    const defaultDecimals =
-      widget.attributeKey === "rpm" || widget.attributeKey === "heading" ? 0 : 1
+
+    const defaultMin = isAngle ? -45 : 0
+    const defaultDecimals = isRpm || attrClean.includes("heading") ? 0 : 1
+    const defaultUnit = isAngle || isWindAngle ? "deg" : isTemp ? "°C" : isRpm ? "RPM" : meta?.unit || "knots"
 
     return (
       <GaugeDial
         value={typeof rawVal === "number" ? rawVal : 0}
         max={cfg.max ?? defaultMax}
-        min={cfg.min ?? 0}
-        unit={cfg.unit || (meta?.unit || "knots")}
+        min={cfg.min ?? defaultMin}
+        unit={cfg.unit || defaultUnit}
         decimals={cfg.decimals ?? defaultDecimals}
         thresholds={cfg.thresholds}
         thresholdColors={cfg.thresholdColors}
-        label={meta?.key?.toUpperCase() || widget.attributeKey?.toUpperCase() || "GAUGE"}
+        label={meta?.label?.toUpperCase() || widget.attributeKey?.toUpperCase() || "GAUGE"}
       />
     )
   }
@@ -3355,24 +3509,14 @@ function WidgetContent({
         : "cog"
 
     const primaryMeta = VESSEL_ATTRIBUTES.find((a) => a.key === primaryKey)
-    const primaryRaw = primaryMeta
-      ? primaryMeta.getValue(vessel)
-      : primaryKey === "cog"
-      ? vessel.cog
-      : vessel.heading
+    const primaryRaw = getVesselAttributeValue(vessel, primaryKey) ?? (primaryMeta ? primaryMeta.getValue(vessel) : (primaryKey === "cog" ? vessel.cog : vessel.heading))
     const primaryAngle = typeof primaryRaw === "number" && !isNaN(primaryRaw) ? primaryRaw : 0
     const primaryLabel = primaryKey === "heading" ? "HDG" : primaryKey.toUpperCase()
 
     const hasSecondary = Boolean(secondaryKey && secondaryKey !== "none")
     const secondaryMeta = hasSecondary ? VESSEL_ATTRIBUTES.find((a) => a.key === secondaryKey) : null
     const secondaryRaw = hasSecondary
-      ? secondaryMeta
-        ? secondaryMeta.getValue(vessel)
-        : secondaryKey === "cog"
-        ? vessel.cog
-        : secondaryKey === "heading"
-        ? vessel.heading
-        : null
+      ? (getVesselAttributeValue(vessel, secondaryKey) ?? (secondaryMeta ? secondaryMeta.getValue(vessel) : (secondaryKey === "cog" ? vessel.cog : secondaryKey === "heading" ? vessel.heading : null)))
       : null
     const secondaryAngle = typeof secondaryRaw === "number" && !isNaN(secondaryRaw) ? secondaryRaw : null
     const secondaryLabel = hasSecondary ? (secondaryKey === "heading" ? "HDG" : secondaryKey.toUpperCase()) : ""
@@ -3986,8 +4130,14 @@ export function MonitoringPage() {
 
   const selectedWidgetMeta = useMemo(() => {
     if (!selectedWidget) return null
-    return VESSEL_ATTRIBUTES.find((a) => a.key === selectedWidget.attributeKey) || null
-  }, [selectedWidget])
+    const vAttrs = selectedWidget.vesselId ? vesselAttributesMap[selectedWidget.vesselId] : undefined
+    const dynamicAttrs = buildDynamicVesselAttributes(selectedWidgetVessel, vAttrs)
+    return (
+      dynamicAttrs.find((a) => a.key === selectedWidget.attributeKey) ||
+      VESSEL_ATTRIBUTES.find((a) => a.key === selectedWidget.attributeKey) ||
+      null
+    )
+  }, [selectedWidget, selectedWidgetVessel, vesselAttributesMap])
 
   const selectedWidgetSecondaryMeta = useMemo(() => {
     if (!selectedWidget || selectedWidget.type !== "heading") return null
@@ -3998,25 +4148,32 @@ export function MonitoringPage() {
         ? "heading"
         : "cog"
     if (!secKey || secKey === "none") return null
-    return VESSEL_ATTRIBUTES.find((a) => a.key === secKey) || null
-  }, [selectedWidget])
+    const vAttrs = selectedWidget.vesselId ? vesselAttributesMap[selectedWidget.vesselId] : undefined
+    const dynamicAttrs = buildDynamicVesselAttributes(selectedWidgetVessel, vAttrs)
+    return (
+      dynamicAttrs.find((a) => a.key === secKey) ||
+      VESSEL_ATTRIBUTES.find((a) => a.key === secKey) ||
+      null
+    )
+  }, [selectedWidget, selectedWidgetVessel, vesselAttributesMap])
 
-  // Filtered attributes in picker modal: strictly only show attributes registered on selected vessel
-  const filteredPickerAttributes = useMemo(() => {
+  // Dynamic attribute list from database registry & live vessel payload
+  const availablePickerAttributes = useMemo(() => {
     const targetVessel = vessels.find((v) => v.id === pickerVesselId) || vessels[0] || null
     const registeredList = pickerVesselId ? vesselAttributesMap[pickerVesselId] : undefined
 
-    return VESSEL_ATTRIBUTES.filter((attr) => {
-      // 1. Only allow attributes registered on the selected vessel (removes unregistered attributes)
-      if (!isAttributeRegisteredOnVessel(attr.key, targetVessel, registeredList)) {
-        return false
-      }
+    return buildDynamicVesselAttributes(targetVessel, registeredList)
+  }, [pickerVesselId, vessels, vesselAttributesMap])
 
-      // 2. Category filter
+  // Filtered attributes in picker modal: category filter & search query
+  const filteredPickerAttributes = useMemo(() => {
+    return availablePickerAttributes.filter((attr) => {
+      // 1. Category filter
       const matchCategory =
-        attrCategoryFilter === "all" || attr.category === attrCategoryFilter
+        attrCategoryFilter === "all" ||
+        attr.category.toLowerCase() === attrCategoryFilter.toLowerCase()
 
-      // 3. Search query
+      // 2. Search query
       const matchSearch =
         !attrSearch.trim() ||
         attr.label.toLowerCase().includes(attrSearch.toLowerCase()) ||
@@ -4025,7 +4182,7 @@ export function MonitoringPage() {
 
       return matchCategory && matchSearch
     })
-  }, [pickerVesselId, vessels, vesselAttributesMap, attrCategoryFilter, attrSearch])
+  }, [availablePickerAttributes, attrCategoryFilter, attrSearch])
 
   // Ensure selected attribute remains valid among registered attributes when changing vessel
   useEffect(() => {
@@ -4585,7 +4742,9 @@ export function MonitoringPage() {
     if (!selectedWidget) return
     const targetVessel = vessels.find((v) => v.id === pickerVesselId)
     const effectivePrimary = pickerAttrKey || (selectedWidget.type === "heading" ? "heading" : "sog")
-    const targetMeta = VESSEL_ATTRIBUTES.find((a) => a.key === effectivePrimary)
+    const targetMeta =
+      availablePickerAttributes.find((a) => a.key === effectivePrimary) ||
+      VESSEL_ATTRIBUTES.find((a) => a.key === effectivePrimary)
 
     const updates: Partial<WidgetDef> = {
       vesselId: pickerVesselId,
@@ -4601,9 +4760,21 @@ export function MonitoringPage() {
     updateWidget(selectedWidget.id, updates)
 
     if (targetMeta) {
+      const isAngle = effectivePrimary.includes("pitch") || effectivePrimary.includes("roll")
+      const defaultMax =
+        effectivePrimary === "rpm"
+          ? 3000
+          : isAngle
+          ? 45
+          : effectivePrimary === "fuel" || effectivePrimary === "engineLoad"
+          ? 100
+          : 24
+      const defaultMin = isAngle ? -45 : 0
+
       updateWidgetConfig(selectedWidget.id, {
         unit: targetMeta.unit,
-        max: effectivePrimary === "rpm" ? 3000 : (effectivePrimary === "fuel" || effectivePrimary === "engineLoad" ? 100 : 24),
+        max: defaultMax,
+        min: defaultMin,
       })
     }
 
@@ -6502,13 +6673,13 @@ export function MonitoringPage() {
                   {" • "}
                   Primary:{" "}
                   <strong className="text-cyan-700">
-                    {VESSEL_ATTRIBUTES.find((a) => a.key === pickerAttrKey)?.label || pickerAttrKey || "None"}
+                    {availablePickerAttributes.find((a) => a.key === pickerAttrKey)?.label || VESSEL_ATTRIBUTES.find((a) => a.key === pickerAttrKey)?.label || pickerAttrKey || "None"}
                   </strong>
                   {" • "}
                   Secondary:{" "}
                   <strong className="text-amber-700">
                     {pickerSecondaryAttrKey && pickerSecondaryAttrKey !== "none"
-                      ? (VESSEL_ATTRIBUTES.find((a) => a.key === pickerSecondaryAttrKey)?.label || pickerSecondaryAttrKey)
+                      ? (availablePickerAttributes.find((a) => a.key === pickerSecondaryAttrKey)?.label || VESSEL_ATTRIBUTES.find((a) => a.key === pickerSecondaryAttrKey)?.label || pickerSecondaryAttrKey)
                       : "None"}
                   </strong>
                 </span>
@@ -6520,7 +6691,7 @@ export function MonitoringPage() {
                   </strong>{" "}
                   •{" "}
                   <strong className="text-[#db4040]">
-                    {VESSEL_ATTRIBUTES.find((a) => a.key === pickerAttrKey)?.label}
+                    {availablePickerAttributes.find((a) => a.key === pickerAttrKey)?.label || VESSEL_ATTRIBUTES.find((a) => a.key === pickerAttrKey)?.label || pickerAttrKey}
                   </strong>
                 </span>
               ) : (

@@ -94,25 +94,44 @@ class TcpUsrAgentInstance {
 
         if (!chunk || chunk.length === 0) return;
 
-        // Custom Decoder Hook jika dikonfigurasi oleh user
+        // Custom Decoder Hook jika dikonfigurasi oleh user (Alternatif Dinamis)
         if (this.customDecoderFn) {
           try {
             const customDecoded = this.customDecoderFn(chunk.toString('utf-8'), {
               agentId: this.id,
               port: this.port,
               remote: remote,
+              vesselId: boundAssetId,
+              rawBytes: chunk,
             });
-            if (customDecoded) {
+            if (customDecoded && typeof customDecoded === 'object') {
               logBuffer.pushLog({
                 agent_id: this.id,
                 vessel_id: boundAssetId || 'vessel_c2e2cffb',
                 protocol: 'CUSTOM_DECODER',
-                type: 'INFO',
+                type: 'CUSTOM_DATA',
                 raw: chunk.toString('utf-8').slice(0, 100),
                 decoded: customDecoded,
               });
+
+              // INJEKSI LANGSUNG KE STATE KAPAL TERKAIT (ALTERNATIF DINAMIS)
+              const targetAsset = boundAssetId
+                ? assetManager.getAsset(boundAssetId)
+                : (assetManager.getAsset('vessel_c2e2cffb') || assetManager.getAllAssets()[0]);
+              if (targetAsset && targetAsset.state && typeof targetAsset.state.applyCustomData === 'function') {
+                targetAsset.state.applyCustomData(customDecoded);
+              }
             }
-          } catch (e) {}
+          } catch (e) {
+            logBuffer.pushLog({
+              agent_id: this.id,
+              vessel_id: boundAssetId || 'vessel_c2e2cffb',
+              protocol: 'CUSTOM_DECODER',
+              type: 'ERROR',
+              raw: chunk.toString('utf-8').slice(0, 100),
+              decoded: { error: e.message },
+            });
+          }
         }
 
         // 1. Handshake: Deteksi Registration Packet USR di awal koneksi
@@ -364,12 +383,14 @@ class TcpUsrAgentInstance {
       }
     }
 
-    // Auto-update MMSI dan Callsign dari PGN AIS Static
+    // Auto-update MMSI, Callsign, IMO dan Destination dari PGN AIS Static
     if ((pgn === 129794 || pgn === 129809) && decodedData && (decodedData.mmsi || decodedData.callsign)) {
       const targetId = targetAssetId || 'vessel_c2e2cffb';
       assetManager.updateOwnShipIdentifiers(targetId, {
         mmsi: decodedData.mmsi,
         callsign: decodedData.callsign,
+        imo: decodedData.imo,
+        destination: decodedData.destination,
       });
     }
   }
@@ -380,14 +401,15 @@ class TcpUsrAgentInstance {
       return !mode || mode === 'HYBRID' || mode === 'RS485_ONLY';
     };
 
-    // Auto-update MMSI, Callsign, dan IMO dari NMEA !AIVDO (Own Vessel) atau AIS Type 5
-    if (decodedData && (decodedData.is_own_vessel || decodedData.type === 'VDO' || decodedData.callsign || decodedData.imo)) {
+    // Auto-update MMSI, Callsign, IMO, dan Destination dari NMEA !AIVDO (Own Vessel) atau AIS Type 5
+    if (decodedData && (decodedData.is_own_vessel || decodedData.type === 'VDO' || decodedData.callsign || decodedData.imo || decodedData.destination)) {
       const targetId = targetAssetId || 'vessel_c2e2cffb';
-      if (decodedData.mmsi || decodedData.callsign || decodedData.imo) {
+      if (decodedData.mmsi || decodedData.callsign || decodedData.imo || decodedData.destination) {
         assetManager.updateOwnShipIdentifiers(targetId, {
           mmsi: decodedData.mmsi,
           callsign: decodedData.callsign,
           imo: decodedData.imo,
+          destination: decodedData.destination,
         });
       }
     }

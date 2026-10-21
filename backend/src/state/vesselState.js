@@ -43,6 +43,11 @@ class VesselState {
     this.engine_rpm = null;
     this.boost_kpa = null;
     this.battery_volts = null;
+    this.battery_amps = null;
+    this.battery_temp_c = null;
+
+    // Dynamic Custom Telemetry Attributes dari Script Decoder
+    this.customAttributes = new Map();
 
     // Map: sourceAddress -> { source, pgns: Set, frameCount, lastSeen }
     this.devices = new Map();
@@ -212,6 +217,10 @@ class VesselState {
         if (data.imo) tgt.imo = data.imo;
         if (data.ship_type) tgt.type = data.ship_type;
         if (data.ais_class) tgt.ais_class = data.ais_class;
+        if (data.destination) tgt.destination = data.destination;
+        if (data.draught_m !== undefined && data.draught_m !== null) tgt.draught_m = data.draught_m;
+        if (data.length_m !== undefined && data.length_m !== null) tgt.length_m = data.length_m;
+        if (data.beam_m !== undefined && data.beam_m !== null) tgt.beam_m = data.beam_m;
         tgt.lastSeen = Date.now();
         this.aisTargets.set(data.mmsi, tgt);
       }
@@ -264,6 +273,45 @@ class VesselState {
       if (data.boost_kpa !== undefined) this.boost_kpa = data.boost_kpa;
     } else if (pgn === 127508) {
       if (data.battery_volts !== undefined) this.battery_volts = data.battery_volts;
+      if (data.battery_amps !== undefined) this.battery_amps = data.battery_amps;
+      if (data.battery_temp_c !== undefined) this.battery_temp_c = data.battery_temp_c;
+    }
+  }
+
+  /**
+   * Menerima hasil decode dari Custom Script Decoder (Alternatif Dinamis)
+   * Menyuntikkan otomatis ke variabel standar atau map customAttributes
+   */
+  applyCustomData(data) {
+    if (!data || typeof data !== 'object') return;
+    this.lastDataReceivedAt = Date.now();
+
+    for (const [key, rawVal] of Object.entries(data)) {
+      if (rawVal === undefined || rawVal === null) continue;
+      const numVal = typeof rawVal === 'number' ? rawVal : (typeof rawVal === 'string' && !isNaN(Number(rawVal)) ? Number(rawVal) : NaN);
+      const val = !isNaN(numVal) ? numVal : rawVal;
+
+      const k = key.toLowerCase();
+      if (k === 'sog' || k === 'sog_knots') this.sog_knots = typeof val === 'number' ? val : parseFloat(val);
+      else if (k === 'cog' || k === 'cog_deg') this.cog_deg = typeof val === 'number' ? val : parseFloat(val);
+      else if (k === 'heading' || k === 'heading_deg') this.heading_deg = typeof val === 'number' ? val : parseFloat(val);
+      else if (k === 'lat' || k === 'latitude') this.latitude = typeof val === 'number' ? val : parseFloat(val);
+      else if (k === 'lon' || k === 'lng' || k === 'longitude') this.longitude = typeof val === 'number' ? val : parseFloat(val);
+      else if (k === 'depth' || k === 'depth_m') this.depth_m = typeof val === 'number' ? val : parseFloat(val);
+      else if (k === 'rpm' || k === 'engine_rpm') this.engine_rpm = typeof val === 'number' ? val : parseFloat(val);
+      else if (k === 'boost' || k === 'boost_kpa') this.boost_kpa = typeof val === 'number' ? val : parseFloat(val);
+      else if (k === 'battery' || k === 'battery_volts') this.battery_volts = typeof val === 'number' ? val : parseFloat(val);
+      else if (k === 'wind_speed' || k === 'windspeed' || k === 'wind_speed_kn') this.wind_speed_kn = typeof val === 'number' ? val : parseFloat(val);
+      else if (k === 'wind_angle' || k === 'windangle' || k === 'wind_angle_deg') this.wind_angle_deg = typeof val === 'number' ? val : parseFloat(val);
+      else if (k === 'water_temp' || k === 'water_temp_c') this.water_temp_c = typeof val === 'number' ? val : parseFloat(val);
+      else if (k === 'air_temp' || k === 'air_temp_c') this.air_temp_c = typeof val === 'number' ? val : parseFloat(val);
+      else if (k === 'pitch' || k === 'pitch_deg') this.pitch_deg = typeof val === 'number' ? val : parseFloat(val);
+      else if (k === 'roll' || k === 'roll_deg') this.roll_deg = typeof val === 'number' ? val : parseFloat(val);
+      else if (k === 'rot' || k === 'rot_deg_s') this.rot_deg_s = typeof val === 'number' ? val : parseFloat(val);
+      else {
+        // Atribut kustom dinamis baru!
+        this.customAttributes.set(key, val);
+      }
     }
   }
 
@@ -324,7 +372,10 @@ class VesselState {
         engine_rpm: this.engine_rpm,
         boost_kpa: this.boost_kpa,
         battery_volts: this.battery_volts,
+        battery_amps: this.battery_amps,
+        battery_temp_c: this.battery_temp_c,
       },
+      custom: Object.fromEntries(this.customAttributes),
       ais: {
         total_targets: activeAis.length,
         targets: activeAis.slice(0, 50), // Kirim 50 target terdekat/teraktif
