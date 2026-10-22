@@ -352,7 +352,7 @@ export function OpenMapTilesMarineMap({
           <span class="target-wave-ring"></span>
           <span class="target-wave-ring"></span>
         </div>
-        <div class="own-ship-marker-unit" style="transform: rotate(${rot}deg);" title="${selectedVessel.name}">
+        <div class="own-ship-marker-unit" title="${selectedVessel.name}">
           <div class="own-ship-heading-arrow">
             <svg viewBox="0 0 14 12" width="13" height="11" style="display: block; overflow: visible;">
               <polygon points="7,0 14,12 7,8 0,12" fill="#db4040" stroke="#ffffff" stroke-width="1.6" stroke-linejoin="round" />
@@ -384,14 +384,21 @@ export function OpenMapTilesMarineMap({
         </div>
       `)
 
-      const marker = new Marker({ element: el, anchor: "center" })
+      const marker = new Marker({
+        element: el,
+        anchor: "center",
+        rotationAlignment: "map",
+        pitchAlignment: "map",
+      })
         .setLngLat([lng, lat])
+        .setRotation(rot)
         .setPopup(popup)
         .addTo(map)
 
       ownShipMarkerRef.current = marker
     } else {
       ownShipMarkerRef.current.setLngLat([lng, lat])
+      ownShipMarkerRef.current.setRotation(rot)
       const el = ownShipMarkerRef.current.getElement()
       const pulseEl = el?.querySelector<HTMLElement>(".target-wave-pulse")
       if (pulseEl) {
@@ -404,7 +411,7 @@ export function OpenMapTilesMarineMap({
       }
       const unitEl = el?.querySelector<HTMLElement>(".own-ship-marker-unit")
       if (unitEl) {
-        unitEl.style.transform = `rotate(${rot}deg)`
+        unitEl.style.transform = ""
         unitEl.setAttribute("title", selectedVessel.name)
       }
       ownShipMarkerRef.current.getPopup()?.setHTML(`
@@ -452,7 +459,7 @@ export function OpenMapTilesMarineMap({
             <span class="target-wave-ring"></span>
             <span class="target-wave-ring"></span>
           </div>
-          <div class="ais-vessel-arrow" style="transform: rotate(${rot}deg);">
+          <div class="ais-vessel-arrow">
             <svg viewBox="0 0 20 28" width="18" height="26" style="display: block; overflow: visible;">
               <polygon points="10,1 19,25 10,20 1,25" fill="${color}" stroke="#ffffff" stroke-width="1.8" stroke-linejoin="round" />
             </svg>
@@ -476,14 +483,21 @@ export function OpenMapTilesMarineMap({
           </div>
         `)
 
-        marker = new Marker({ element: el, anchor: "center" })
+        marker = new Marker({
+          element: el,
+          anchor: "center",
+          rotationAlignment: "map",
+          pitchAlignment: "map",
+        })
           .setLngLat([target.position.lng, target.position.lat])
+          .setRotation(rot)
           .setPopup(popup)
           .addTo(map)
 
         markersRef.current.set(target.id, marker)
       } else {
         marker.setLngLat([target.position.lng, target.position.lat])
+        marker.setRotation(rot)
         const el = marker.getElement()
         if (el) {
           if (isSelected) {
@@ -505,7 +519,7 @@ export function OpenMapTilesMarineMap({
 
           const arrowEl = el.querySelector<HTMLElement>(".ais-vessel-arrow")
           if (arrowEl) {
-            arrowEl.style.transform = `rotate(${rot}deg)`
+            arrowEl.style.transform = ""
           }
 
           const poly = el.querySelector("polygon")
