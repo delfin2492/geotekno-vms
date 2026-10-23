@@ -1187,7 +1187,7 @@ export function VesselAssetsPage() {
                             </div>
                             <div className="mt-2 flex items-center justify-between border-t border-slate-200/60 pt-2 text-[10px]">
                               <span className="text-slate-400">
-                                Decoders: {agent.decoders.join(" + ")}
+                                Decoders: {(Array.isArray(agent.decoders) && agent.decoders.length > 0) ? agent.decoders.join(" + ") : "NMEA2000 + NMEA0183"}
                               </span>
                               <div className="flex items-center gap-3">
                                 <button

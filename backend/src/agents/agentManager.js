@@ -459,6 +459,7 @@ class TcpUsrAgentInstance {
   }
 
   getStatus() {
+    const cfg = this.config || {};
     return {
       id: this.id,
       name: this.name,
@@ -467,7 +468,12 @@ class TcpUsrAgentInstance {
       companyId: this.company_id,
       config: this.config,
       port: this.port,
-      status: this.status,
+      host: this.host || cfg.host || '0.0.0.0',
+      decoders: cfg.decoders || ['NMEA2000', 'NMEA0183'],
+      decoderTemplate: cfg.decoderTemplate || 'HYBRID',
+      decoderCode: cfg.decoderCode || '',
+      packetsPerMinute: Math.round((this.frameRate || 0) * 60) || 0,
+      status: this.status === 'ONLINE' ? 'connected' : (this.status === 'WAITING' ? 'disconnected' : 'error'),
       connected_client: this.activeSocket ? `${this.activeSocket.remoteAddress}:${this.activeSocket.remotePort}` : null,
       total_frames: this.totalFrames,
       frame_rate: this.frameRate,
