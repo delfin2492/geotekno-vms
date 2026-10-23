@@ -32,6 +32,7 @@ const AVAILABLE_PAGES = [
   { key: "monitoring", label: "Monitoring Dashboard", desc: "Dynamic maritime telemetry & instruments" },
   { key: "logs", label: "Live Logs", desc: "Raw NMEA 2000 & NMEA 0183 log stream" },
   { key: "export", label: "Data Export", desc: "Telemetry history, sensor feeds & attribute export" },
+  { key: "users", label: "User & Access Management", desc: "Manage team member accounts and access permissions" },
 ]
 
 const AVAILABLE_FEATURES = [
@@ -47,7 +48,10 @@ const AVAILABLE_SECTIONS = [
 ]
 
 export function UserManagementPage() {
-  const { user: currentUser } = useAuth()
+  const { user: currentUser, canAccessPage } = useAuth()
+  const isSuperadmin = Boolean(currentUser?.isSuperadmin ?? (currentUser as any)?.is_superadmin)
+  const canWriteUser = isSuperadmin || canAccessPage("users", "write")
+
   const [activeTab, setActiveTab] = useState<"users" | "roles" | "companies">("users")
   const [users, setUsers] = useState<User[]>([])
   const [roles, setRoles] = useState<Role[]>([])
@@ -563,29 +567,35 @@ export function UserManagementPage() {
 
           <div className="flex items-center gap-2.5">
             {activeTab === "users" ? (
-              <button
-                onClick={openCreateUserModal}
-                className="flex items-center gap-2 rounded-xl bg-[#db4040] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-700 cursor-pointer"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Add User</span>
-              </button>
+              canWriteUser && (
+                <button
+                  onClick={openCreateUserModal}
+                  className="flex items-center gap-2 rounded-xl bg-[#db4040] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-700 cursor-pointer"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Add User</span>
+                </button>
+              )
             ) : activeTab === "roles" ? (
-              <button
-                onClick={openCreateRoleModal}
-                className="flex items-center gap-2 rounded-xl bg-[#db4040] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-700 cursor-pointer"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Create New Role</span>
-              </button>
+              isSuperadmin && (
+                <button
+                  onClick={openCreateRoleModal}
+                  className="flex items-center gap-2 rounded-xl bg-[#db4040] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-700 cursor-pointer"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Create New Role</span>
+                </button>
+              )
             ) : (
-              <button
-                onClick={openCreateCompanyModal}
-                className="flex items-center gap-2 rounded-xl bg-[#db4040] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-700 cursor-pointer"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Register Company</span>
-              </button>
+              isSuperadmin && (
+                <button
+                  onClick={openCreateCompanyModal}
+                  className="flex items-center gap-2 rounded-xl bg-[#db4040] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-700 cursor-pointer"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Register Company</span>
+                </button>
+              )
             )}
           </div>
         </div>
@@ -602,17 +612,19 @@ export function UserManagementPage() {
             <Users className="h-4 w-4" />
             <span>Users Directory ({users.length})</span>
           </button>
-          <button
-            onClick={() => setActiveTab("roles")}
-            className={`flex items-center gap-2 px-5 py-3 text-xs font-bold border-b-2 transition cursor-pointer ${activeTab === "roles"
-                ? "border-[#db4040] text-[#db4040]"
-                : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
-              }`}
-          >
-            <ShieldCheck className="h-4 w-4" />
-            <span>Roles & Permissions ({roles.length})</span>
-          </button>
-          {Boolean(currentUser?.isSuperadmin ?? (currentUser as any)?.is_superadmin) && (
+          {isSuperadmin && (
+            <button
+              onClick={() => setActiveTab("roles")}
+              className={`flex items-center gap-2 px-5 py-3 text-xs font-bold border-b-2 transition cursor-pointer ${activeTab === "roles"
+                  ? "border-[#db4040] text-[#db4040]"
+                  : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
+                }`}
+            >
+              <ShieldCheck className="h-4 w-4" />
+              <span>Roles & Permissions ({roles.length})</span>
+            </button>
+          )}
+          {isSuperadmin && (
             <button
               onClick={() => setActiveTab("companies")}
               className={`flex items-center gap-2 px-5 py-3 text-xs font-bold border-b-2 transition cursor-pointer ${activeTab === "companies"
@@ -779,24 +791,28 @@ export function UserManagementPage() {
                             )}
                           </td>
                           <td className="px-6 py-4 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              <button
-                                onClick={() => openEditUserModal(u)}
-                                className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 cursor-pointer"
-                                title="Edit User"
-                              >
-                                <Edit2 className="h-4 w-4" />
-                              </button>
-                              {!isSelf && (
+                            {canWriteUser ? (
+                              <div className="flex items-center justify-end gap-1.5">
                                 <button
-                                  onClick={() => handleDeleteUser(u)}
-                                  className="rounded-lg p-1.5 text-red-500 hover:bg-red-50 hover:text-red-700 cursor-pointer"
-                                  title="Delete User"
+                                  onClick={() => openEditUserModal(u)}
+                                  className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 cursor-pointer"
+                                  title="Edit User"
                                 >
-                                  <Trash2 className="h-4 w-4" />
+                                  <Edit2 className="h-4 w-4" />
                                 </button>
-                              )}
-                            </div>
+                                {!isSelf && (!u.isSuperadmin && !(u as any).is_superadmin || isSuperadmin) && (
+                                  <button
+                                    onClick={() => handleDeleteUser(u)}
+                                    className="rounded-lg p-1.5 text-red-500 hover:bg-red-50 hover:text-red-700 cursor-pointer"
+                                    title="Delete User"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 font-medium">Read-only</span>
+                            )}
                           </td>
                         </tr>
                       )
@@ -1104,22 +1120,29 @@ export function UserManagementPage() {
                 {/* Company Selection */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700">
-                    Company / Organization <span className="text-red-500">*</span>
+                    Company / Organization {isSuperadmin && <span className="text-red-500">*</span>}
                   </label>
                   <p className="text-[11px] text-slate-400 mb-1.5">
                     User will be isolated to view vessels and connectivity agents of this organization.
                   </p>
-                  <select
-                    value={userFormData.company_id}
-                    onChange={(e) => setUserFormData({ ...userFormData, company_id: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 bg-blue-50/20 px-3.5 py-2.5 text-xs text-slate-800 font-semibold outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
-                  >
-                    {companies.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({c.code})
-                      </option>
-                    ))}
-                  </select>
+                  {isSuperadmin ? (
+                    <select
+                      value={userFormData.company_id}
+                      onChange={(e) => setUserFormData({ ...userFormData, company_id: e.target.value })}
+                      className="w-full rounded-xl border border-slate-200 bg-blue-50/20 px-3.5 py-2.5 text-xs text-slate-800 font-semibold outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                    >
+                      {companies.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ({c.code})
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-semibold text-slate-700">
+                      <Building2 className="h-4 w-4 text-blue-600" />
+                      <span>{companies.find((c) => c.id === userFormData.company_id)?.name || "Your Organization"}</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* 4. Role Selection (Inherit Permissions) */}
@@ -1135,11 +1158,13 @@ export function UserManagementPage() {
                     onChange={(e) => setUserFormData({ ...userFormData, role_id: e.target.value })}
                     className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs text-slate-800 font-medium outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
                   >
-                    {roles.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name} {r.is_system ? "(System Default)" : "(Custom Role)"}
-                      </option>
-                    ))}
+                    {roles
+                      .filter((r) => isSuperadmin || r.id !== "role_superadmin")
+                      .map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.name} {r.is_system ? "(System Default)" : "(Custom Role)"}
+                        </option>
+                      ))}
                   </select>
 
                   {/* Show summary of selected role */}

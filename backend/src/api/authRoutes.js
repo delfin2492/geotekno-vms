@@ -227,9 +227,17 @@ function createAuthRouter() {
   // ==========================================
 
   // GET /roles - List all roles with permission sets and user count
-  router.get('/roles', authenticate, requireSuperadmin, async (req, res) => {
+  router.get('/roles', authenticate, (req, res, next) => {
+    if (req.user && (req.user.isSuperadmin || req.user.permissions?.pages?.users?.read)) {
+      return next();
+    }
+    return res.status(403).json({ error: 'Forbidden: Akses ditolak', code: 'SUPERADMIN_REQUIRED' });
+  }, async (req, res) => {
     try {
-      const roles = await listRoles();
+      let roles = await listRoles();
+      if (!req.user.isSuperadmin) {
+        roles = roles.filter(r => r.id !== 'role_superadmin');
+      }
       return res.json({ roles });
     } catch (err) {
       console.error('[ROLE ERROR] List roles failed:', err);
@@ -297,13 +305,22 @@ function createAuthRouter() {
   });
 
   // ==========================================
-  // SUPERADMIN CRUD & USERS MANAGEMENT API
+  // USERS MANAGEMENT API (SCOPED FOR TENANTS & SUPERADMIN)
   // ==========================================
 
-  // GET /users - List all users with permissions & vessels
-  router.get('/users', authenticate, requireSuperadmin, async (req, res) => {
+  // GET /users - List users with permissions & vessels
+  router.get('/users', authenticate, (req, res, next) => {
+    if (req.user && (req.user.isSuperadmin || req.user.permissions?.pages?.users?.read)) {
+      return next();
+    }
+    return res.status(403).json({ error: 'Forbidden: Akses ditolak', code: 'PERMISSION_DENIED' });
+  }, async (req, res) => {
     try {
-      const users = await listUsers();
+      let users = await listUsers();
+      if (!req.user.isSuperadmin) {
+        const userComp = req.user.companyId || req.user.company_id || 'comp_geotekno';
+        users = users.filter(u => (u.company_id || 'comp_geotekno') === userComp);
+      }
       return res.json({ users });
     } catch (err) {
       console.error('[USER ERROR] List users failed:', err);
@@ -311,8 +328,13 @@ function createAuthRouter() {
     }
   });
 
-  // POST /users - Superadmin creates a new user account
-  router.post('/users', authenticate, requireSuperadmin, async (req, res) => {
+  // POST /users - Create new user account
+  router.post('/users', authenticate, (req, res, next) => {
+    if (req.user && (req.user.isSuperadmin || req.user.permissions?.pages?.users?.write)) {
+      return next();
+    }
+    return res.status(403).json({ error: 'Forbidden: Hak tulis diperlukan', code: 'WRITE_PERMISSION_REQUIRED' });
+  }, async (req, res) => {
     try {
       const { name, username, email, password, role_id, company_id, companyId, is_superadmin, is_active, permissions, vessels } = req.body;
       if (!name || !email || !password) {
@@ -331,18 +353,32 @@ function createAuthRouter() {
         }
       }
 
+      let targetCompany = company_id || companyId || 'comp_geotekno';
+      let targetSuperadmin = false;
+      let targetRoleId = role_id || 'role_fleet_operator';
+
+      if (!req.user.isSuperadmin) {
+        targetCompany = req.user.companyId || req.user.company_id || 'comp_geotekno';
+        targetSuperadmin = false;
+        if (targetRoleId === 'role_superadmin') {
+          return res.status(403).json({ error: 'Hanya Superadmin yang berwenang membuat akun Superadmin.' });
+        }
+      } else {
+        targetSuperadmin = is_superadmin !== undefined ? !!is_superadmin : (role_id === 'role_superadmin');
+      }
+
       const newUser = await createUser({
         name,
         username,
         email,
         password,
-        role_id: role_id || 'role_fleet_operator',
-        company_id: company_id || companyId || 'comp_geotekno',
-        is_superadmin: is_superadmin !== undefined ? !!is_superadmin : (role_id === 'role_superadmin'),
+        role_id: targetRoleId,
+        company_id: targetCompany,
+        is_superadmin: targetSuperadmin,
         is_active: is_active ?? true,
       });
 
-      if (Array.isArray(permissions)) {
+      if (Array.isArray(permissions) && req.user.isSuperadmin) {
         await setUserPermissions(newUser.id, permissions);
       }
       if (Array.isArray(vessels)) {
@@ -356,13 +392,45 @@ function createAuthRouter() {
     }
   });
 
-  // PUT /users/:id - Superadmin updates user data
-  router.put('/users/:id', authenticate, requireSuperadmin, async (req, res) => {
+  // PUT /users/:id - Update user data
+  router.put('/users/:id', authenticate, (req, res, next) => {
+    if (req.user && (req.user.isSuperadmin || req.user.permissions?.pages?.users?.write)) {
+      return next();
+    }
+    return res.status(403).json({ error: 'Forbidden: Hak tulis diperlukan', code: 'WRITE_PERMISSION_REQUIRED' });
+  }, async (req, res) => {
     try {
       const { id } = req.params;
-      const { name, username, email, role_id, company_id, companyId, is_active, is_superadmin, password, permissions, vessels } = req.body;
+      const targetUser = await findById(id);
+      if (!targetUser) {
+        return res.status(404).json({ error: 'User not found.' });
+      }
 
-      // Validate email uniqueness if changing email
+      if (!req.user.isSuperadmin) {
+        const userComp = req.user.companyId || req.user.company_id || 'comp_geotekno';
+        if ((targetUser.company_id || 'comp_geotekno') !== userComp) {
+          return res.status(403).json({ error: 'Forbidden: Anda hanya dapat mengelola user di perusahaan Anda sendiri.' });
+        }
+        if (targetUser.is_superadmin) {
+          return res.status(403).json({ error: 'Forbidden: Tidak dapat mengubah akun Superadmin.' });
+        }
+      }
+
+      const { name, username, email, role_id, company_id, companyId, is_superadmin, is_active, password, permissions, vessels } = req.body;
+
+      let nextCompanyId = targetUser.company_id;
+      let nextIsSuperadmin = targetUser.is_superadmin;
+      let nextRoleId = role_id || targetUser.role_id;
+
+      if (req.user.isSuperadmin) {
+        nextCompanyId = (company_id !== undefined ? company_id : (companyId !== undefined ? companyId : targetUser.company_id));
+        nextIsSuperadmin = (is_superadmin !== undefined ? !!is_superadmin : targetUser.is_superadmin);
+      } else {
+        if (nextRoleId === 'role_superadmin') {
+          return res.status(403).json({ error: 'Forbidden: Tidak dapat menetapkan role Superadmin.' });
+        }
+      }
+
       if (email) {
         const normalizedEmail = email.trim().toLowerCase();
         const existing = await pool.query(
@@ -378,17 +446,17 @@ function createAuthRouter() {
         name,
         username,
         email,
-        role_id,
-        company_id: company_id !== undefined ? company_id : companyId,
+        role_id: nextRoleId,
+        company_id: nextCompanyId,
         is_active,
-        is_superadmin,
+        is_superadmin: nextIsSuperadmin,
         password,
       });
       if (!updated) {
         return res.status(404).json({ error: 'User not found.' });
       }
 
-      if (Array.isArray(permissions)) {
+      if (Array.isArray(permissions) && req.user.isSuperadmin) {
         await setUserPermissions(id, permissions);
       }
       if (Array.isArray(vessels)) {
@@ -412,12 +480,32 @@ function createAuthRouter() {
     }
   });
 
-  // DELETE /users/:id - Superadmin deletes user
-  router.delete('/users/:id', authenticate, requireSuperadmin, async (req, res) => {
+  // DELETE /users/:id - Delete user
+  router.delete('/users/:id', authenticate, (req, res, next) => {
+    if (req.user && (req.user.isSuperadmin || req.user.permissions?.pages?.users?.write)) {
+      return next();
+    }
+    return res.status(403).json({ error: 'Forbidden: Hak tulis diperlukan', code: 'WRITE_PERMISSION_REQUIRED' });
+  }, async (req, res) => {
     try {
       const { id } = req.params;
-      if (req.user.sub === id) {
+      if (req.user.sub === id || req.user.id === id) {
         return res.status(400).json({ error: 'You cannot delete your own account.' });
+      }
+
+      const targetUser = await findById(id);
+      if (!targetUser) {
+        return res.status(404).json({ error: 'User not found.' });
+      }
+
+      if (!req.user.isSuperadmin) {
+        const userComp = req.user.companyId || req.user.company_id || 'comp_geotekno';
+        if ((targetUser.company_id || 'comp_geotekno') !== userComp) {
+          return res.status(403).json({ error: 'Forbidden: Anda hanya dapat menghapus user di perusahaan Anda sendiri.' });
+        }
+        if (targetUser.is_superadmin) {
+          return res.status(403).json({ error: 'Forbidden: Tidak dapat menghapus akun Superadmin.' });
+        }
       }
 
       await deleteUser(id);

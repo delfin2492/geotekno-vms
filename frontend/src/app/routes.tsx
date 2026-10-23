@@ -97,7 +97,7 @@ export const router = createBrowserRouter([
           const { UserManagementPage } = await import("@/pages/UserManagementPage")
           return {
             Component: () => (
-              <ProtectedRoute requireSuperadmin>
+              <ProtectedRoute pageKey="users">
                 <UserManagementPage />
               </ProtectedRoute>
             ),
