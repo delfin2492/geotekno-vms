@@ -31,6 +31,7 @@ import {
 } from "lucide-react"
 import { Link } from "react-router"
 import { useFleet } from "@/state/FleetProvider"
+import { useAuth } from "@/state/AuthProvider"
 import { api } from "@/services/api"
 import { PageHeader, StatusBadge, buttonPrimary, buttonSecondary, inputClass } from "@/components/common/UI"
 import ExcelJS from "exceljs"
@@ -187,11 +188,21 @@ interface ExportHistoryItem {
 
 export function DataExportPage() {
   const { vessels } = useFleet()
+  const { user, isSuperadmin } = useAuth()
 
   // Selection states
   const [selectedVesselId, setSelectedVesselId] = useState<string>(() => {
-    return vessels[0]?.id || "all"
+    return vessels.length === 1 ? vessels[0].id : (vessels[0]?.id || "all")
   })
+
+  // Auto-sync selection with permitted vessels
+  useEffect(() => {
+    if (vessels.length === 1 && selectedVesselId === "all") {
+      setSelectedVesselId(vessels[0].id)
+    } else if (vessels.length > 0 && selectedVesselId !== "all" && !vessels.some((v) => v.id === selectedVesselId)) {
+      setSelectedVesselId(vessels[0].id)
+    }
+  }, [vessels, selectedVesselId])
   const [timePreset, setTimePreset] = useState<TimeRangePreset>("24h")
   const [customStart, setCustomStart] = useState<string>(() => {
     const d = new Date()
@@ -344,8 +355,10 @@ export function DataExportPage() {
     setLoadingPreview(true)
     setNotification(null)
     try {
+      const targetAssetIds = selectedVesselId === "all" ? vessels.map((v) => v.id).join(",") : undefined
       const resp = await api.getTelemetryHistory({
         assetId: selectedVesselId === "all" ? undefined : selectedVesselId,
+        assetIds: targetAssetIds,
         from: dateRange.from,
         to: dateRange.to,
         limit: 150,
@@ -460,8 +473,10 @@ export function DataExportPage() {
     setNotification(null)
 
     try {
+      const targetAssetIds = selectedVesselId === "all" ? vessels.map((v) => v.id).join(",") : undefined
       const resp = await api.getTelemetryHistory({
         assetId: selectedVesselId === "all" ? undefined : selectedVesselId,
+        assetIds: targetAssetIds,
         from: dateRange.from,
         to: dateRange.to,
         limit: 2000,
@@ -737,6 +752,22 @@ export function DataExportPage() {
     return ((rowEstimate * bytesPerRow) / 1024).toFixed(1)
   }, [previewRecords.length, activeAttributes.length])
 
+  if (vessels.length === 0) {
+    return (
+      <main className="grid min-h-[600px] place-items-center text-center p-6">
+        <div className="max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 shadow-inner">
+            <Ship className="h-7 w-7" />
+          </div>
+          <h1 className="mt-4 text-base font-bold text-slate-800">No Vessels Assigned to this Account</h1>
+          <p className="mt-1 text-xs text-slate-500 leading-relaxed">
+            Your account ({user?.email}) does not have permission to access or export telemetry for any fleet vessels yet. Please contact your Fleet Administrator to assign vessel permissions.
+          </p>
+        </div>
+      </main>
+    )
+  }
+
   return (
     <main className="mx-auto max-w-[1800px] p-4 sm:p-6 xl:p-8 space-y-6">
       {/* 1. HERO PAGE HEADER (NautiCore Theme) */}
@@ -846,10 +877,12 @@ export function DataExportPage() {
                   onChange={(e) => setSelectedVesselId(e.target.value)}
                   className={inputClass}
                 >
-                  <option value="all">Fleet Aggregation (All Vessels)</option>
+                  {vessels.length > 1 && (
+                    <option value="all">My Fleet Aggregation ({vessels.length} Vessels)</option>
+                  )}
                   {vessels.map((v) => (
                     <option key={v.id} value={v.id}>
-                      {v.name} ({v.type || "Vessel"} • MMSI: {v.mmsi || "N/A"})
+                      {v.name} ({v.type || "Vessel"}{v.mmsi ? ` • MMSI: ${v.mmsi}` : ""})
                     </option>
                   ))}
                 </select>

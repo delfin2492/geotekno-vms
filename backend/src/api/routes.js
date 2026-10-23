@@ -3,6 +3,7 @@ const { agentManager } = require('../agents/agentManager');
 const { assetManager } = require('../assets/assetManager');
 const { widgetManager } = require('../widgets/widgetManager');
 const sectionRepo = require('../widgets/sectionRepo');
+const companyRepo = require('../companies/companyRepo');
 const { getRecentTrack, getLatestTelemetry, getHistoricalTelemetryLogs } = require('../db/telemetryRepo');
 const { logBuffer } = require('../logs/logBuffer');
 const {
@@ -40,31 +41,46 @@ function createApiRouter() {
   // ==========================================
   // AGENTS MANAGEMENT API
   // ==========================================
-  router.get('/agents', (req, res) => {
-    res.json(agentManager.getAllAgents());
+  router.get(['/agents', '/v1/agents'], (req, res) => {
+    let agents = agentManager.getAllAgents();
+    const queryComp = req.query.company_id || req.query.companyId;
+
+    if (req.user && !req.user.isSuperadmin) {
+      const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
+      agents = agents.filter(a => a.company_id === userCompId || !a.company_id);
+    } else if (queryComp && queryComp !== 'all') {
+      agents = agents.filter(a => a.company_id === queryComp || !a.company_id);
+    }
+    res.json(agents);
   });
 
-  router.post('/agents', async (req, res) => {
+  router.post(['/agents', '/v1/agents'], async (req, res) => {
     try {
-      const { id, name, protocol, config } = req.body;
-      const created = await agentManager.createAgent({ id, name, protocol, config });
+      const { id, name, protocol, company_id, companyId, config } = req.body;
+      const targetCompany = (req.user && !req.user.isSuperadmin)
+        ? (req.user.companyId || req.user.company_id || 'comp_geotekno')
+        : (company_id || companyId || 'comp_geotekno');
+      const created = await agentManager.createAgent({ id, name, protocol, company_id: targetCompany, config });
       res.json({ success: true, agent: created.getStatus() });
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
   });
 
-  router.put('/agents/:id', async (req, res) => {
+  router.put(['/agents/:id', '/v1/agents/:id'], async (req, res) => {
     try {
-      const { name, protocol, config } = req.body;
-      const updated = await agentManager.updateAgent(req.params.id, { name, protocol, config });
+      const { name, protocol, company_id, companyId, config } = req.body;
+      const newComp = (req.user && req.user.isSuperadmin)
+        ? (company_id !== undefined ? company_id : companyId)
+        : undefined;
+      const updated = await agentManager.updateAgent(req.params.id, { name, protocol, company_id: newComp, config });
       res.json({ success: true, agent: updated.getStatus() });
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
   });
 
-  router.delete('/agents/:id', async (req, res) => {
+  router.delete(['/agents/:id', '/v1/agents/:id'], async (req, res) => {
     try {
       await agentManager.deleteAgent(req.params.id);
       res.json({ success: true });
@@ -77,10 +93,17 @@ function createApiRouter() {
   // ASSETS MANAGEMENT API
   // ==========================================
   router.get('/assets', (req, res) => {
-    const all = assetManager.getAllAssets();
-    if (req.user && !req.user.isSuperadmin && Array.isArray(req.user.vessels) && !req.user.vessels.includes('*')) {
-      const filtered = all.filter(a => req.user.vessels.includes(a.id));
-      return res.json(filtered);
+    let all = assetManager.getAllAssets();
+    const queryComp = req.query.company_id || req.query.companyId;
+
+    if (req.user && !req.user.isSuperadmin) {
+      const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
+      all = all.filter(a => (a.company_id || 'comp_geotekno') === userCompId);
+      if (Array.isArray(req.user.vessels) && !req.user.vessels.includes('*')) {
+        all = all.filter(a => req.user.vessels.includes(a.id));
+      }
+    } else if (queryComp && queryComp !== 'all') {
+      all = all.filter(a => (a.company_id || 'comp_geotekno') === queryComp);
     }
     res.json(all);
   });
@@ -90,8 +113,11 @@ function createApiRouter() {
       if (req.user && !req.user.isSuperadmin && !req.user.permissions?.pages?.vessels?.write) {
         return res.status(403).json({ error: 'Forbidden: Anda tidak memiliki izin menambah kapal.' });
       }
-      const { id, agent_id, name, type, metadata } = req.body;
-      const created = await assetManager.createAsset({ id, agent_id, name, type, metadata });
+      const { id, agent_id, name, type, company_id, companyId, metadata } = req.body;
+      const targetCompany = (req.user && !req.user.isSuperadmin)
+        ? (req.user.companyId || req.user.company_id || 'comp_geotekno')
+        : (company_id || companyId || 'comp_geotekno');
+      const created = await assetManager.createAsset({ id, agent_id, name, type, company_id: targetCompany, metadata });
       res.json({ success: true, asset: created.info });
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -108,8 +134,11 @@ function createApiRouter() {
           return res.status(403).json({ error: 'Forbidden: Anda tidak ditugaskan untuk mengelola kapal ini.' });
         }
       }
-      const { name, agent_id, type, metadata } = req.body;
-      const updated = await assetManager.updateAsset(req.params.id, { name, agent_id, type, metadata });
+      const { name, agent_id, type, company_id, companyId, metadata } = req.body;
+      const newCompanyId = (req.user && req.user.isSuperadmin)
+        ? (company_id !== undefined ? company_id : companyId)
+        : undefined;
+      const updated = await assetManager.updateAsset(req.params.id, { name, agent_id, type, company_id: newCompanyId, metadata });
       res.json({ success: true, asset: updated.info });
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -306,14 +335,49 @@ function createApiRouter() {
     const rpm = eng && eng.engine_rpm !== null && eng.engine_rpm !== undefined ? Number(eng.engine_rpm) : null;
     const windSpeed = env && env.wind_speed_kn !== null && env.wind_speed_kn !== undefined ? Number(env.wind_speed_kn) : null;
 
-    let status = 'In Port';
-    if (sog > 0.5) status = 'Underway';
-    else if (isConnected) status = 'Anchored';
+    // Evaluasi data freshness sesuai karakteristik transmisi kapal maritim & delay AIS/TCP:
+    // - Interval telemetri cepat (GPS, N2K, DST810): 1s - 10s
+    // - Interval laporan AIS Class A bergerak: 2s - 10s
+    // - Interval laporan AIS Class A berlabuh (anchored/moored): 3 menit (180s)
+    // - Interval AIS Class B: 30s - 3 menit (180s)
+    // - Interval AIS Static Data: 6 menit (360s)
+    // - Latensi buffer / jitter koneksi seluler maritim 4G/LTE / satelit: 15s - 60s
+    const now = Date.now();
+    const lastDataMs = state && state.lastDataReceivedAt ? Number(state.lastDataReceivedAt) : null;
+    const dataAgeSec = lastDataMs ? Math.max(0, (now - lastDataMs) / 1000) : null;
 
     let quality = 'offline';
-    if (isConnected && bus && bus.fps > 0) quality = 'live';
-    else if (isConnected) quality = 'delayed';
-    else if (state && state.totalFrames > 0) quality = 'stale';
+    if (dataAgeSec !== null) {
+      if (dataAgeSec <= 90 && isConnected) {
+        // Data sangat segar (< 90s) dengan gateway TCP aktif
+        quality = 'live';
+      } else if (dataAgeSec <= 90) {
+        // Data baru masuk (< 90s) tapi soket TCP gateway sedang reconnecting
+        quality = 'delayed';
+      } else if (dataAgeSec <= 360) {
+        // Masuk akal dalam toleransi delay maritim & AIS kapal berlabuh (sampai 6 menit)
+        quality = 'delayed';
+      } else if (dataAgeSec <= 1800) {
+        // 6 - 30 menit: transmisi tertunda / high latency satellite polling
+        quality = 'stale';
+      } else {
+        // Lebih dari 30 menit tanpa transmisi
+        quality = 'offline';
+      }
+    } else {
+      quality = isConnected ? 'delayed' : 'offline';
+    }
+
+    let status = 'In Port';
+    if (quality === 'offline') {
+      status = 'Offline';
+    } else if (sog > 0.5) {
+      status = 'Underway';
+    } else if (isConnected) {
+      status = 'Anchored';
+    } else {
+      status = 'In Port';
+    }
 
     const fuelVal = meta.fuel !== undefined && meta.fuel !== null ? Number(meta.fuel) : null;
     const engineLoadVal = meta.engineLoad !== undefined && meta.engineLoad !== null 
@@ -324,6 +388,9 @@ function createApiRouter() {
     const roll = mot && mot.roll_deg !== null && mot.roll_deg !== undefined ? Number(mot.roll_deg) : null;
     const rot = mot && mot.rot_deg_s !== null && mot.rot_deg_s !== undefined ? Number(mot.rot_deg_s) : null;
     const waterTemp = env && env.water_temp_c !== null && env.water_temp_c !== undefined ? Number(env.water_temp_c) : null;
+    const stw = env && env.stw_knots !== null && env.stw_knots !== undefined ? Number(env.stw_knots) : null;
+    const logDistance = env && env.log_nm !== null && env.log_nm !== undefined ? Number(env.log_nm) : null;
+    const tripDistance = env && env.trip_log_nm !== null && env.trip_log_nm !== undefined ? Number(env.trip_log_nm) : null;
     const airTemp = env && env.air_temp_c !== null && env.air_temp_c !== undefined ? Number(env.air_temp_c) : null;
     const baroPressure = env && env.baro_pressure_hpa !== null && env.baro_pressure_hpa !== undefined ? Number(env.baro_pressure_hpa) : null;
     const windAngle = env && env.wind_angle_deg !== null && env.wind_angle_deg !== undefined ? Number(env.wind_angle_deg) : null;
@@ -356,6 +423,9 @@ function createApiRouter() {
       roll: roll,
       rot: rot,
       waterTemp: waterTemp,
+      stw: stw,
+      logDistance: logDistance,
+      tripDistance: tripDistance,
       airTemp: airTemp,
       baroPressure: baroPressure,
       windAngle: windAngle,
@@ -364,6 +434,8 @@ function createApiRouter() {
       batteryVolts: batteryVolts,
       batteryAmps: batteryAmps,
       destination: meta.destination || '',
+      company_id: info.company_id || 'comp_geotekno',
+      companyId: info.company_id || 'comp_geotekno',
       quality: quality,
       updatedAt: (snap && snap.timestamp_utc) ? snap.timestamp_utc : (info.created_at || meta.created_at || null),
       customAttributes: customAttrs,
@@ -373,14 +445,29 @@ function createApiRouter() {
 
   // --- V1 VESSELS CRUD ---
   router.get('/v1/vessels', (req, res) => {
-    const assets = Array.from(assetManager.assets.values());
+    let assets = Array.from(assetManager.assets.values());
     const agents = agentManager.getAllAgents();
+    const queryComp = req.query.company_id || req.query.companyId;
+
+    if (req.user && !req.user.isSuperadmin) {
+      const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
+      assets = assets.filter(a => (a.info.company_id || 'comp_geotekno') === userCompId);
+      if (Array.isArray(req.user.vessels) && !req.user.vessels.includes('*')) {
+        assets = assets.filter(a => req.user.vessels.includes(a.info.id));
+      }
+    } else if (queryComp && queryComp !== 'all') {
+      assets = assets.filter(a => (a.info.company_id || 'comp_geotekno') === queryComp);
+    }
+
     res.json(assets.map(a => formatVessel(a, agents)));
   });
 
   router.post('/v1/vessels', async (req, res) => {
     try {
-      const { name, type, imo, mmsi, callSign, registerContent, register_content, agentIds = [], destination } = req.body;
+      const { name, type, imo, mmsi, callSign, registerContent, register_content, agentIds = [], destination, company_id, companyId } = req.body;
+      const targetCompany = (req.user && !req.user.isSuperadmin)
+        ? (req.user.companyId || req.user.company_id || 'comp_geotekno')
+        : (company_id || companyId || (req.user ? req.user.companyId : 'comp_geotekno') || 'comp_geotekno');
       const primaryAgent = agentIds[0] || null;
       const regStr = registerContent || register_content || '';
       const metadata = {
@@ -397,6 +484,7 @@ function createApiRouter() {
         name,
         type: type || 'Container Ship',
         agent_id: primaryAgent,
+        company_id: targetCompany,
         metadata,
       });
       const agents = agentManager.getAllAgents();
@@ -413,9 +501,12 @@ function createApiRouter() {
         return res.status(404).json({ error: `Vessel '${req.params.id}' tidak ditemukan` });
       }
       const prevMeta = existing.info.metadata || {};
-      const { name, type, imo, mmsi, callSign, registerContent, register_content, agentIds, destination } = req.body;
+      const { name, type, imo, mmsi, callSign, registerContent, register_content, agentIds, destination, company_id, companyId } = req.body;
       const newAgentIds = agentIds !== undefined ? agentIds : (prevMeta.agentIds || [existing.info.agent_id].filter(Boolean));
       const newRegContent = registerContent !== undefined ? registerContent : (register_content !== undefined ? register_content : (prevMeta.register_content || prevMeta.registration_code || ''));
+      const newCompanyId = (req.user && req.user.isSuperadmin)
+        ? (company_id !== undefined ? company_id : companyId)
+        : undefined;
       const metadata = {
         ...prevMeta,
         imo: imo !== undefined ? imo : (prevMeta.imo || ''),
@@ -431,6 +522,7 @@ function createApiRouter() {
         name,
         type,
         agent_id: newAgentIds[0] || null,
+        company_id: newCompanyId,
         metadata,
       });
       const agents = agentManager.getAllAgents();
@@ -665,18 +757,27 @@ function createApiRouter() {
   router.get('/v1/telemetry/history', async (req, res) => {
     try {
       const assetId = req.query.asset_id || req.query.vessel_id || null;
+      const assetIds = req.query.asset_ids || null;
       const from = req.query.from || null;
       const to = req.query.to || null;
       const limit = parseInt(req.query.limit || '200', 10);
       const offset = parseInt(req.query.offset || '0', 10);
 
-      const records = await getHistoricalTelemetryLogs({ assetId, from, to, limit, offset });
+      const records = await getHistoricalTelemetryLogs({ assetId, assetIds, from, to, limit, offset });
       
       // Fallback: If DB query returns 0 rows (e.g. before persistent live stream frames recorded),
       // synthesize realistic records from current vessel snapshot & tracks so the user can always preview & export
       if (records.length === 0) {
         const assets = assetManager.getAllAssets();
-        const targetAsset = assetId && assetId !== 'all' ? (assetManager.getAsset(assetId) || assets[0]) : assets[0];
+        let targetAsset = null;
+        if (assetId && assetId !== 'all') {
+          targetAsset = assetManager.getAsset(assetId) || assets[0];
+        } else if (assetIds) {
+          const firstId = assetIds.split(',')[0]?.trim();
+          targetAsset = assetManager.getAsset(firstId) || assets[0];
+        } else {
+          targetAsset = assets[0];
+        }
         const state = targetAsset ? targetAsset.state : null;
         const snap = state && typeof state.getSnapshot === 'function' ? state.getSnapshot() : null;
         const tracks = await getRecentTrack(limit || 60, targetAsset?.info?.id || null);
@@ -1030,6 +1131,61 @@ function createApiRouter() {
       success: true,
       stats: logBuffer.getStats(),
     });
+  });
+
+  // ==========================================
+  // MULTI-COMPANY TENANCY API
+  // ==========================================
+  router.get('/v1/companies', async (req, res) => {
+    try {
+      const companies = await companyRepo.listCompanies();
+      if (req.user && !req.user.isSuperadmin) {
+        const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
+        return res.json(companies.filter(c => c.id === userCompId));
+      }
+      res.json(companies);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/v1/companies/:id', async (req, res) => {
+    try {
+      const comp = await companyRepo.getCompanyById(req.params.id);
+      if (!comp) return res.status(404).json({ error: 'Perusahaan tidak ditemukan' });
+      res.json(comp);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/v1/companies', requireSuperadmin, async (req, res) => {
+    try {
+      const { name, code, description } = req.body;
+      const created = await companyRepo.createCompany({ name, code, description });
+      res.json({ success: true, company: created });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.put('/v1/companies/:id', requireSuperadmin, async (req, res) => {
+    try {
+      const { name, code, description } = req.body;
+      const updated = await companyRepo.updateCompany(req.params.id, { name, code, description });
+      res.json({ success: true, company: updated });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.delete('/v1/companies/:id', requireSuperadmin, async (req, res) => {
+    try {
+      await companyRepo.deleteCompany(req.params.id);
+      res.json({ success: true, message: 'Perusahaan berhasil dihapus' });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
   });
 
   return router;

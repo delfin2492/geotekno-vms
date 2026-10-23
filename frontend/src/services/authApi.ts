@@ -1,3 +1,5 @@
+import type { Company } from "@/domain/types"
+
 export interface PermissionItem {
   read: boolean
   write: boolean
@@ -30,6 +32,11 @@ export interface User {
   name: string
   username?: string
   email: string
+  company_id?: string
+  company_name?: string
+  company_code?: string
+  companyId?: string
+  companyName?: string
   role_id?: string
   role_name?: string
   role_description?: string
@@ -209,5 +216,49 @@ export const authApi = {
     return authRequest<{ success: boolean; message?: string }>(`/roles/${encodeURIComponent(id)}`, {
       method: "DELETE",
     })
+  },
+
+  // --- Multi-Company Tenancy Management ---
+  async listCompanies(): Promise<Company[]> {
+    const res = await fetch("/api/v1/companies", {
+      headers: {
+        Authorization: `Bearer ${getStoredToken() || ""}`,
+      },
+    })
+    return res.json()
+  },
+
+  async createCompany(data: { name: string; code?: string; description?: string }): Promise<{ success: boolean; company: Company }> {
+    const res = await fetch("/api/v1/companies", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getStoredToken() || ""}`,
+      },
+      body: JSON.stringify(data),
+    })
+    return res.json()
+  },
+
+  async updateCompany(id: string, data: { name?: string; code?: string; description?: string }): Promise<{ success: boolean; company: Company }> {
+    const res = await fetch(`/api/v1/companies/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getStoredToken() || ""}`,
+      },
+      body: JSON.stringify(data),
+    })
+    return res.json()
+  },
+
+  async deleteCompany(id: string): Promise<{ success: boolean; message?: string }> {
+    const res = await fetch(`/api/v1/companies/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${getStoredToken() || ""}`,
+      },
+    })
+    return res.json()
   },
 }

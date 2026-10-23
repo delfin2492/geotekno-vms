@@ -45,6 +45,8 @@ export function StatusBadge({ status }: { status: string }) {
       ? "bg-emerald-50 text-emerald-700 ring-emerald-600/10"
       : normalized.includes("warn") ||
           normalized === "delayed" ||
+          normalized === "stale" ||
+          normalized === "anchored" ||
           normalized === "testing"
         ? "bg-amber-50 text-amber-700 ring-amber-600/10"
         : normalized.includes("critical") ||

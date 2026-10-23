@@ -17,9 +17,11 @@ import type {
   VesselDraft,
 } from "@/domain/types"
 import { api } from "@/services/api"
+import { useAuth } from "@/state/AuthProvider"
 
 interface FleetContextValue {
   vessels: Vessel[]
+  allVessels: Vessel[]
   agents: Agent[]
   aisTargets: AisTarget[]
   alerts: Alert[]
@@ -65,6 +67,7 @@ function sanitizeStorage<T extends { id: string }>(key: string): T[] {
 }
 
 export function FleetProvider({ children }: { children: ReactNode }) {
+  const { canAccessVessel, isSuperadmin } = useAuth()
   const [vessels, setVessels] = useState<Vessel[]>(() =>
     sanitizeStorage<Vessel>(KEYS.vessels),
   )
@@ -185,13 +188,33 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const permittedVessels = useMemo(
+    () => (isSuperadmin ? vessels : vessels.filter((v) => canAccessVessel(v.id))),
+    [vessels, canAccessVessel, isSuperadmin],
+  )
+
+  const permittedAgents = useMemo(() => {
+    if (isSuperadmin) return agents
+    const allowedAgentIds = new Set(permittedVessels.flatMap((v) => v.agentIds || []))
+    return agents.filter((a) => allowedAgentIds.has(a.id))
+  }, [agents, permittedVessels, isSuperadmin])
+
+  const permittedLogs = useMemo(
+    () =>
+      isSuperadmin
+        ? logs
+        : logs.filter((l) => Boolean(l.vesselId && canAccessVessel(l.vesselId))),
+    [logs, canAccessVessel, isSuperadmin],
+  )
+
   const value = useMemo<FleetContextValue>(
     () => ({
-      vessels,
-      agents,
+      vessels: permittedVessels,
+      allVessels: vessels,
+      agents: permittedAgents,
       aisTargets,
       alerts,
-      logs,
+      logs: permittedLogs,
       tracks,
       addVessel: (draft) => {
         const tempId = `vessel_${Math.random().toString(16).slice(2, 10)}`
@@ -349,7 +372,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
           ),
         ),
     }),
-    [vessels, agents, aisTargets, alerts, logs, tracks],
+    [permittedVessels, vessels, agents, aisTargets, alerts, permittedLogs, tracks],
   )
 
   return <FleetContext.Provider value={value}>{children}</FleetContext.Provider>

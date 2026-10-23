@@ -180,6 +180,7 @@ export const api = {
   // --- Telemetry History & Export ---
   getTelemetryHistory(params?: {
     assetId?: string
+    assetIds?: string
     vesselId?: string
     from?: string
     to?: string
@@ -188,6 +189,7 @@ export const api = {
   }): Promise<{ total: number; records: any[]; source: string }> {
     const searchParams = new URLSearchParams()
     if (params?.assetId) searchParams.append("asset_id", params.assetId)
+    if (params?.assetIds) searchParams.append("asset_ids", params.assetIds)
     if (params?.vesselId) searchParams.append("vessel_id", params.vesselId)
     if (params?.from) searchParams.append("from", params.from)
     if (params?.to) searchParams.append("to", params.to)

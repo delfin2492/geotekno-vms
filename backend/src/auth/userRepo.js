@@ -4,7 +4,10 @@ const crypto = require('crypto');
 
 async function findByEmail(identifier) {
   const res = await pool.query(
-    'SELECT * FROM core_users WHERE LOWER(email) = LOWER($1) OR LOWER(username) = LOWER($1) OR LOWER(name) = LOWER($1)',
+    `SELECT u.*, c.name as company_name, c.code as company_code
+     FROM core_users u
+     LEFT JOIN core_companies c ON u.company_id = c.id
+     WHERE LOWER(u.email) = LOWER($1) OR LOWER(u.username) = LOWER($1) OR LOWER(u.name) = LOWER($1)`,
     [identifier]
   );
   return res.rows[0] || null;
@@ -13,38 +16,44 @@ async function findByEmail(identifier) {
 async function findById(id) {
   const res = await pool.query(
     `SELECT u.id, u.name, u.username, u.email, u.role_id, r.name as role_name,
+            u.company_id, c.name as company_name, c.code as company_code,
             u.is_superadmin, u.is_active, u.created_at, u.updated_at 
      FROM core_users u
      LEFT JOIN core_roles r ON u.role_id = r.id
+     LEFT JOIN core_companies c ON u.company_id = c.id
      WHERE u.id = $1`,
     [id]
   );
   return res.rows[0] || null;
 }
 
-async function createUser({ name, username, email, password, role_id, is_superadmin, is_active = true }) {
+async function createUser({ name, username, email, password, role_id, company_id = 'comp_geotekno', is_superadmin, is_active = true }) {
   const id = `usr_${crypto.randomBytes(8).toString('hex')}`;
   const passwordHash = hashPassword(password);
   const userUsername = username ? username.trim().toLowerCase() : name.trim().toLowerCase().replace(/\s+/g, '_');
   const roleId = role_id || 'role_fleet_operator';
   const isSuper = is_superadmin !== undefined ? is_superadmin : (roleId === 'role_superadmin');
+  const compId = company_id || 'comp_geotekno';
 
   const res = await pool.query(
-    `INSERT INTO core_users (id, name, username, email, password_hash, role_id, is_superadmin, is_active)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     RETURNING id, name, username, email, role_id, is_superadmin, is_active, created_at, updated_at`,
-    [id, name, userUsername, email.trim().toLowerCase(), passwordHash, roleId, isSuper, is_active]
+    `INSERT INTO core_users (id, name, username, email, password_hash, role_id, company_id, is_superadmin, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     RETURNING id, name, username, email, role_id, company_id, is_superadmin, is_active, created_at, updated_at`,
+    [id, name, userUsername, email.trim().toLowerCase(), passwordHash, roleId, compId, isSuper, is_active]
   );
   const row = res.rows[0];
-  return row ? { ...row, isSuperadmin: !!row.is_superadmin, isActive: !!row.is_active } : null;
+  if (!row) return null;
+  return findById(row.id);
 }
 
 async function listUsers() {
   const usersRes = await pool.query(
     `SELECT u.id, u.name, u.username, u.email, u.role_id, r.name as role_name, r.description as role_description,
+            u.company_id, c.name as company_name, c.code as company_code,
             u.is_superadmin, u.is_active, u.created_at, u.updated_at 
      FROM core_users u
      LEFT JOIN core_roles r ON u.role_id = r.id
+     LEFT JOIN core_companies c ON u.company_id = c.id
      ORDER BY u.created_at ASC`
   );
   const users = usersRes.rows;
@@ -60,7 +69,7 @@ async function listUsers() {
   return users;
 }
 
-async function updateUser(id, { name, username, email, role_id, is_active, is_superadmin, password }) {
+async function updateUser(id, { name, username, email, role_id, company_id, is_active, is_superadmin, password }) {
   const fields = [];
   const values = [];
   let idx = 1;
@@ -85,6 +94,10 @@ async function updateUser(id, { name, username, email, role_id, is_active, is_su
       values.push(role_id === 'role_superadmin');
     }
   }
+  if (company_id !== undefined) {
+    fields.push(`company_id = $${idx++}`);
+    values.push(company_id || null);
+  }
   if (is_active !== undefined) {
     fields.push(`is_active = $${idx++}`);
     values.push(is_active);
@@ -100,12 +113,11 @@ async function updateUser(id, { name, username, email, role_id, is_active, is_su
   fields.push(`updated_at = NOW()`);
 
   values.push(id);
-  const res = await pool.query(
-    `UPDATE core_users SET ${fields.join(', ')} WHERE id = $${idx} RETURNING id, name, username, email, role_id, is_superadmin, is_active, updated_at`,
+  await pool.query(
+    `UPDATE core_users SET ${fields.join(', ')} WHERE id = $${idx}`,
     values
   );
-  const row = res.rows[0];
-  return row ? { ...row, isSuperadmin: !!row.is_superadmin, isActive: !!row.is_active } : null;
+  return findById(id);
 }
 
 async function deleteUser(id) {

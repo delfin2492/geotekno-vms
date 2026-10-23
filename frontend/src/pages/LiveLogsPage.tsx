@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   Braces,
   ChevronRight,
@@ -18,33 +18,55 @@ import {
   inputClass,
 } from "@/components/common/UI"
 import { useFleet } from "@/state/FleetProvider"
+import { useAuth } from "@/state/AuthProvider"
 import type { RawLog } from "@/domain/types"
 
 export function LiveLogsPage() {
+  const { user, isSuperadmin } = useAuth()
   const { logs, vessels, agents } = useFleet()
   const [live, setLive] = useState(true)
   const [snapshot, setSnapshot] = useState<RawLog[]>([])
   const [agentId, setAgentId] = useState("all")
-  const [vesselId, setVesselId] = useState("all")
+  const [vesselId, setVesselId] = useState<string>(() => {
+    return vessels.length === 1 ? vessels[0].id : "all"
+  })
   const [decoder, setDecoder] = useState("all")
   const [severity, setSeverity] = useState("all")
   const [query, setQuery] = useState("")
   const [selected, setSelected] = useState<RawLog>()
+
+  // Auto-sync vesselId with permitted vessels
+  useEffect(() => {
+    if (vessels.length === 1 && vesselId === "all") {
+      setVesselId(vessels[0].id)
+    } else if (vessels.length > 0 && vesselId !== "all" && !vessels.some((v) => v.id === vesselId)) {
+      setVesselId(vessels[0].id)
+    }
+  }, [vessels, vesselId])
+
   const source = live ? logs : snapshot
   const pending = live ? 0 : Math.max(0, logs.length - snapshot.length)
+
+  const permittedVesselIds = useMemo(() => new Set(vessels.map((v) => v.id)), [vessels])
+
   const filtered = useMemo(
     () =>
-      source.filter(
-        (log) =>
+      source.filter((log) => {
+        // Enforce vessel access permissions strictly
+        if (!isSuperadmin && (!log.vesselId || !permittedVesselIds.has(log.vesselId))) {
+          return false
+        }
+        return (
           (agentId === "all" || log.agentId === agentId) &&
-          (vesselId === "all" || log.vesselId === vesselId) &&
+          (vesselId === "all" ? true : log.vesselId === vesselId) &&
           (decoder === "all" || log.decoder === decoder) &&
           (severity === "all" || log.severity === severity) &&
           `${log.payload} ${log.summary}`
             .toLowerCase()
-            .includes(query.toLowerCase()),
-      ),
-    [source, agentId, vesselId, decoder, severity, query],
+            .includes(query.toLowerCase())
+        )
+      }),
+    [source, agentId, vesselId, decoder, severity, query, isSuperadmin, permittedVesselIds],
   )
 
   function toggleLive() {
@@ -99,12 +121,32 @@ export function LiveLogsPage() {
     URL.revokeObjectURL(url)
   }
 
+  if (vessels.length === 0) {
+    return (
+      <main className="grid min-h-[600px] place-items-center text-center p-6">
+        <div className="max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 shadow-inner">
+            <Radio className="h-7 w-7" />
+          </div>
+          <h1 className="mt-4 text-base font-bold text-slate-800">No Vessels Assigned to this Account</h1>
+          <p className="mt-1 text-xs text-slate-500 leading-relaxed">
+            Your account ({user?.email}) does not have permission to access logs for any fleet vessels yet. Please contact your Fleet Administrator to assign vessel permissions.
+          </p>
+        </div>
+      </main>
+    )
+  }
+
   return (
     <main className="mx-auto max-w-[1800px] p-4 sm:p-6 xl:p-8">
       <PageHeader
         eyebrow="Connectivity diagnostics"
         title="Live Logs"
-        description="Inspect decoded and raw payloads streaming from registered TCP connectivity agents."
+        description={
+          vessels.length === 1
+            ? `Inspect decoded and raw payloads streaming for ${vessels[0].name}.`
+            : `Inspect decoded and raw payloads streaming for your assigned fleet (${vessels.length} vessels).`
+        }
         actions={
           <>
             <button onClick={exportCsv} className={buttonSecondary}>
@@ -161,7 +203,9 @@ export function LiveLogsPage() {
                 onChange={(event) => setVesselId(event.target.value)}
                 className={`${inputClass} min-w-36`}
               >
-                <option value="all">All vessels</option>
+                {vessels.length > 1 && (
+                  <option value="all">All permitted vessels ({vessels.length})</option>
+                )}
                 {vessels.map((vessel) => (
                   <option key={vessel.id} value={vessel.id}>
                     {vessel.name}

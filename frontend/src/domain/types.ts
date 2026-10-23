@@ -7,6 +7,18 @@ export interface Position {
   lng: number
 }
 
+export interface Company {
+  id: string
+  name: string
+  code: string
+  description?: string
+  vesselCount?: number
+  userCount?: number
+  agentCount?: number
+  created_at?: string
+  updated_at?: string
+}
+
 export interface Agent {
   id: string
   name: string
@@ -16,6 +28,8 @@ export interface Agent {
   status: AgentStatus
   packetsPerMinute: number
   lastPacketAt: string
+  companyId?: string
+  company_id?: string
   decoderTemplate?: string
   decoderCode?: string
 }
@@ -28,6 +42,8 @@ export interface Vessel {
   mmsi: string
   callSign: string
   registerContent?: string
+  companyId?: string
+  company_id?: string
   agentIds: string[]
   status: "Underway" | "Anchored" | "In Port"
   position: Position
@@ -43,6 +59,9 @@ export interface Vessel {
   roll?: number | null
   rot?: number | null
   waterTemp?: number | null
+  stw?: number | null
+  logDistance?: number | null
+  tripDistance?: number | null
   airTemp?: number | null
   baroPressure?: number | null
   windAngle?: number | null
@@ -113,6 +132,8 @@ export interface AgentDraft {
   host: string
   port: number
   decoders: Decoder[]
+  companyId?: string
+  company_id?: string
   decoderTemplate?: string
   decoderCode?: string
 }

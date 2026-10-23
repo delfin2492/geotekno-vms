@@ -29,6 +29,8 @@ import {
   Play,
   RotateCcw,
   FileCode,
+  Building2,
+  Lock,
 } from "lucide-react"
 import { Link } from "react-router"
 import {
@@ -46,11 +48,13 @@ import {
 import { useFleet } from "@/state/FleetProvider"
 import { useAuth } from "@/state/AuthProvider"
 import { api } from "@/services/api"
+import { authApi } from "@/services/authApi"
 import { DECODER_TEMPLATES } from "@/data/decoderTemplates"
 import type {
   AgentDraft,
   AssetAttribute,
   AssetAttributeDraft,
+  Company,
   DiscoveredSignal,
   Vessel,
   VesselDraft,
@@ -97,6 +101,7 @@ const blankVessel: VesselDraft = {
   registerContent: "",
   agentIds: [],
   destination: "",
+  companyId: "comp_geotekno",
 }
 
 const blankAgent: AgentDraft = {
@@ -106,10 +111,11 @@ const blankAgent: AgentDraft = {
   decoders: ["NMEA2000", "NMEA0183"],
   decoderTemplate: "HYBRID",
   decoderCode: DECODER_TEMPLATES.HYBRID.code,
+  companyId: "comp_geotekno",
 }
 
 export function VesselAssetsPage() {
-  const { isSuperadmin, canAccessPage, canAccessFeature } = useAuth()
+  const { isSuperadmin, canAccessPage, canAccessFeature, companyId: userCompanyId } = useAuth()
   const canWriteVessel = isSuperadmin || canAccessPage("vessels", "write")
   const canManageAgent = isSuperadmin || canAccessFeature("vessel.agent", "write")
   const canEditDecoder = isSuperadmin || canAccessFeature("vessel.decoder", "write")
@@ -126,8 +132,15 @@ export function VesselAssetsPage() {
     setAgentStatus,
   } = useFleet()
 
+  const [companies, setCompanies] = useState<Company[]>([])
   const [selectedId, setSelectedId] = useState(vessels[0]?.id ?? "")
   const [query, setQuery] = useState("")
+
+  useEffect(() => {
+    authApi.listCompanies().then((res) => {
+      if (Array.isArray(res)) setCompanies(res)
+    }).catch(() => {})
+  }, [])
 
   const [vesselModal, setVesselModal] = useState(false)
   const [agentModal, setAgentModal] = useState(false)
@@ -156,10 +169,12 @@ export function VesselAssetsPage() {
   )
 
   useEffect(() => {
-    if (!selected && vessels[0]) {
+    if (vessels.length > 0 && !vessels.some((v) => v.id === selectedId)) {
       setSelectedId(vessels[0].id)
+    } else if (vessels.length === 0 && selectedId !== "") {
+      setSelectedId("")
     }
-  }, [selected, vessels])
+  }, [vessels, selectedId])
 
   useEffect(() => {
     if (selected?.id) {
@@ -178,10 +193,14 @@ export function VesselAssetsPage() {
           mmsi: vessel.mmsi,
           callSign: vessel.callSign,
           registerContent: vessel.registerContent || "",
-          agentIds: vessel.agentIds,
+          agentIds: vessel.agentIds || [],
           destination: vessel.destination,
+          companyId: vessel.companyId || (vessel as any).company_id || userCompanyId || "comp_geotekno",
         }
-        : blankVessel,
+        : {
+          ...blankVessel,
+          companyId: userCompanyId || "comp_geotekno",
+        },
     )
     setErrors({})
     setVesselModal(true)
@@ -233,8 +252,12 @@ export function VesselAssetsPage() {
           decoders: agent.decoders || ["NMEA2000", "NMEA0183"],
           decoderTemplate: tplKey,
           decoderCode: agent.decoderCode || defaultCode,
+          companyId: agent.companyId || (agent as any).company_id || userCompanyId || "comp_geotekno",
         }
-        : blankAgent,
+        : {
+          ...blankAgent,
+          companyId: userCompanyId || "comp_geotekno",
+        },
     )
     setTestPayload(DECODER_TEMPLATES[tplKey]?.samplePayload || "")
     setTestResult(null)
@@ -712,6 +735,12 @@ export function VesselAssetsPage() {
                     <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600 uppercase">
                       {selected.status}
                     </span>
+                    {(selected.companyName || companies.find((c) => c.id === (selected.companyId || (selected as any).company_id))?.name) && (
+                      <span className="flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700 border border-blue-200">
+                        <Building2 className="h-3 w-3" />
+                        {selected.companyName || companies.find((c) => c.id === (selected.companyId || (selected as any).company_id))?.name}
+                      </span>
+                    )}
                   </div>
                   <div className="mt-0.5 text-xs text-slate-500">
                     MMSI {selected.mmsi} • Call Sign {selected.callSign} • IMO{" "}
@@ -1586,38 +1615,94 @@ export function VesselAssetsPage() {
                 placeholder="e.g. KM_GEO_TEKNO_01 or USR_CANET_01"
               />
             </label>
+            {isSuperadmin && companies.length > 0 && (
+              <label className="sm:col-span-2">
+                <span className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold text-slate-700">
+                  <Building2 className="h-3.5 w-3.5 text-blue-600" />
+                  <span>Company / Organization Owner</span>
+                  <span className="text-red-500">*</span>
+                </span>
+                <select
+                  value={vesselDraft.companyId || "comp_geotekno"}
+                  onChange={(event) =>
+                    setVesselDraft({ ...vesselDraft, companyId: event.target.value })
+                  }
+                  className={`${inputClass} font-semibold text-slate-800 bg-blue-50/30 border-blue-200`}
+                >
+                  {companies.map((comp) => (
+                    <option key={comp.id} value={comp.id}>
+                      {comp.name} ({comp.code})
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[10px] text-slate-400">
+                  Connectivity agents and user access will be scoped to this company.
+                </p>
+              </label>
+            )}
             <div className="sm:col-span-2">
-              <span className="mb-2 block text-[10px] font-bold text-slate-600">
-                Connectivity agents
-              </span>
-              <div className="space-y-2 rounded-xl border border-slate-200 p-3">
-                {agents.map((agent) => (
-                  <label
-                    key={agent.id}
-                    className="flex items-center justify-between gap-3 rounded-lg p-2 hover:bg-slate-50 cursor-pointer"
-                  >
-                    <span className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={vesselDraft.agentIds.includes(agent.id)}
-                        onChange={() =>
-                          setVesselDraft({
-                            ...vesselDraft,
-                            agentIds: vesselDraft.agentIds.includes(agent.id)
-                              ? vesselDraft.agentIds.filter(
-                                  (id: string) => id !== agent.id,
-                                )
-                              : [...vesselDraft.agentIds, agent.id],
-                          })
-                        }
-                      />
-                      <span className="text-[10px] font-semibold text-slate-700">
-                        {agent.name}
+              <div className="mb-2 flex items-center justify-between">
+                <span className="block text-[10px] font-bold text-slate-600">
+                  Connectivity agents
+                </span>
+                <span className="text-[10px] text-slate-400">
+                  Scoped to: <span className="font-semibold text-slate-700">{companies.find((c) => c.id === (vesselDraft.companyId || userCompanyId))?.name || "This Organization"}</span>
+                </span>
+              </div>
+              {!canManageAgent && (
+                <div className="mb-2 flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[10px] text-amber-800 border border-amber-200">
+                  <Lock className="h-3 w-3 shrink-0 text-amber-600" />
+                  <span>Read-only: You need 'vessel.agent: write' permission to modify connectivity agents.</span>
+                </div>
+              )}
+              <div className="space-y-2 rounded-xl border border-slate-200 p-3 max-h-48 overflow-y-auto">
+                {(() => {
+                  const targetCompId = vesselDraft.companyId || userCompanyId || "comp_geotekno"
+                  const availableAgents = agents.filter(
+                    (agent) => !agent.companyId || agent.companyId === targetCompId,
+                  )
+                  if (availableAgents.length === 0) {
+                    return (
+                      <p className="py-2 text-center text-[11px] text-slate-400 italic">
+                        No connectivity agents found for this organization. Create a gateway agent for this company first.
+                      </p>
+                    )
+                  }
+                  return availableAgents.map((agent) => (
+                    <label
+                      key={agent.id}
+                      className={`flex items-center justify-between gap-3 rounded-lg p-2 transition ${
+                        !canManageAgent ? "opacity-75 cursor-not-allowed" : "hover:bg-slate-50 cursor-pointer"
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          disabled={!canManageAgent}
+                          checked={vesselDraft.agentIds.includes(agent.id)}
+                          onChange={() =>
+                            setVesselDraft({
+                              ...vesselDraft,
+                              agentIds: vesselDraft.agentIds.includes(agent.id)
+                                ? vesselDraft.agentIds.filter(
+                                    (id: string) => id !== agent.id,
+                                  )
+                                : [...vesselDraft.agentIds, agent.id],
+                            })
+                          }
+                          className="rounded text-red-600 focus:ring-red-500 disabled:cursor-not-allowed"
+                        />
+                        <span className="text-[10px] font-semibold text-slate-700">
+                          {agent.name}
+                        </span>
+                        <span className="font-mono text-[9px] text-slate-400">
+                          {agent.host}:{agent.port}
+                        </span>
                       </span>
-                    </span>
-                    <StatusBadge status={agent.status} />
-                  </label>
-                ))}
+                      <StatusBadge status={agent.status} />
+                    </label>
+                  ))
+                })()}
               </div>
             </div>
           </div>
@@ -1676,6 +1761,27 @@ export function VesselAssetsPage() {
           </div>
           <form onSubmit={submitAgent} className="p-5 max-h-[80vh] overflow-y-auto">
             <div className="grid gap-4 sm:grid-cols-2">
+              {isSuperadmin && companies.length > 0 && (
+                <label className="sm:col-span-2">
+                  <span className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold text-slate-700">
+                    <Building2 className="h-3.5 w-3.5 text-blue-600" />
+                    <span>Company / Organization Owner</span>
+                  </span>
+                  <select
+                    value={agentDraft.companyId || "comp_geotekno"}
+                    onChange={(event) =>
+                      setAgentDraft({ ...agentDraft, companyId: event.target.value })
+                    }
+                    className={`${inputClass} font-semibold text-slate-800 bg-blue-50/30 border-blue-200`}
+                  >
+                    {companies.map((comp) => (
+                      <option key={comp.id} value={comp.id}>
+                        {comp.name} ({comp.code})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label className="sm:col-span-2">
                 <span className="mb-1.5 block text-[10px] font-bold text-slate-600">
                   Agent name

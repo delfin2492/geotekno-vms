@@ -128,6 +128,15 @@ export function MarineTrafficPage() {
 
   const mapWorkspace = useRef<HTMLDivElement>(null)
   const navContainerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (vessels.length > 0 && !vessels.some((v) => v.id === selectedVesselId)) {
+      setSelectedVesselId(vessels[0].id)
+    } else if (vessels.length === 0 && selectedVesselId !== "") {
+      setSelectedVesselId("")
+    }
+  }, [vessels, selectedVesselId])
+
   const selectedVessel =
     vessels.find((vessel) => vessel.id === selectedVesselId) ?? vessels[0]
 

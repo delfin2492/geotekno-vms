@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Responsive,
   WidthProvider,
@@ -86,6 +86,8 @@ export type WidgetType =
   | "kpi"
   | "speed"
   | "heading"
+  | "triducer"
+  | "attitude"
   | "chart"
   | "map"
   | "engine"
@@ -200,6 +202,7 @@ export interface WidgetDef {
   vesselId: string
   attributeKey: string
   secondaryAttributeKey?: string
+  tertiaryAttributeKey?: string
   customUnit?: string
   config?: WidgetConfig
 }
@@ -269,12 +272,15 @@ export function getVesselAttributeValue(vessel?: Vessel | null, attrKey?: string
   if (!vessel || !attrKey) return null
   const k = attrKey.toLowerCase().replace(/[^a-z0-9]/g, "")
   if (k === "sog" || k === "speed") return vessel.sog ?? null
+  if (k === "stw" || k === "speedthroughwater" || k === "stwknots") return vessel.stw ?? vessel.sog ?? null
+  if (k === "logdistance" || k === "lognm") return vessel.logDistance ?? null
+  if (k === "tripdistance" || k === "triplognm") return vessel.tripDistance ?? null
   if (k === "heading" || k === "compass") return vessel.heading ?? null
   if (k === "cog" || k === "course") return vessel.cog ?? null
   if (k === "depth") return vessel.depth ?? null
   if (k === "windspeed" || k === "wind") return vessel.windSpeed ?? null
-  if (k === "pitch" || k === "pitchdeg" || k === "vesselpitch") return vessel.pitch ?? null
-  if (k === "roll" || k === "rolldeg" || k === "vesselroll") return vessel.roll ?? null
+  if (k === "pitch" || k === "pitchdeg" || k === "vesselpitch" || k === "trim") return vessel.pitch ?? null
+  if (k === "roll" || k === "rolldeg" || k === "vesselroll" || k === "heel") return vessel.roll ?? null
   if (k === "rot" || k === "rateofturn") return vessel.rot ?? null
   if (k === "watertemp" || k === "watertemperature" || k === "temp") return vessel.waterTemp ?? null
   if (k === "windangle") return vessel.windAngle ?? null
@@ -381,14 +387,17 @@ export function buildDynamicVesselAttributes(
     type: WidgetType
   }[] = [
     { key: "sog", label: "Speed Over Ground (SOG)", unit: "knots", category: "Navigation", val: vessel.sog, type: "speed" },
+    { key: "stw", label: "Speed Through Water (STW)", unit: "kn", category: "Navigation", val: vessel.stw ?? vessel.sog, type: "triducer" },
     { key: "heading", label: "Heading & Compass", unit: "deg", category: "Navigation", val: vessel.heading, type: "heading" },
     { key: "cog", label: "Course Over Ground (COG)", unit: "deg", category: "Navigation", val: vessel.cog, type: "telemetry" },
-    { key: "depth", label: "Water Depth (Echosounder)", unit: "m", category: "Navigation", val: vessel.depth, type: "telemetry" },
-    { key: "pitch", label: "Vessel Pitch Angle", unit: "deg", category: "Navigation", val: vessel.pitch, type: "telemetry" },
-    { key: "roll", label: "Vessel Roll Angle", unit: "deg", category: "Navigation", val: vessel.roll, type: "telemetry" },
+    { key: "depth", label: "Depth Below Transducer", unit: "m", category: "Navigation", val: vessel.depth, type: "telemetry" },
+    { key: "pitch", label: "Vessel Pitch / Trim", unit: "deg", category: "Navigation", val: vessel.pitch ?? 0, type: "attitude" },
+    { key: "roll", label: "Vessel Roll / Heel", unit: "deg", category: "Navigation", val: vessel.roll ?? 0, type: "attitude" },
     { key: "windSpeed", label: "Wind Speed", unit: "kn", category: "Environment", val: vessel.windSpeed, type: "telemetry" },
     { key: "windAngle", label: "Apparent Wind Angle", unit: "deg", category: "Environment", val: vessel.windAngle, type: "telemetry" },
-    { key: "waterTemp", label: "Sea Water Temperature", unit: "°C", category: "Environment", val: vessel.waterTemp, type: "telemetry" },
+    { key: "waterTemp", label: "Sea Water Temperature", unit: "°C", category: "Environment", val: vessel.waterTemp ?? 28.5, type: "telemetry" },
+    { key: "logDistance", label: "Total Distance Log", unit: "NM", category: "Navigation", val: vessel.logDistance, type: "telemetry" },
+    { key: "tripDistance", label: "Trip Distance Log", unit: "NM", category: "Navigation", val: vessel.tripDistance, type: "telemetry" },
     { key: "fuel", label: "Fuel Tank Reserve", unit: "%", category: "Machinery", val: vessel.fuel, type: "telemetry" },
     { key: "rpm", label: "Main Engine RPM", unit: "RPM", category: "Machinery", val: vessel.rpm, type: "speed" },
     { key: "engineLoad", label: "Engine Load", unit: "%", category: "Machinery", val: vessel.engineLoad, type: "speed" },
@@ -427,6 +436,16 @@ export const VESSEL_ATTRIBUTES: VesselAttributeMeta[] = [
     getFormatted: (v) => `${formatNum(v.sog, 1)} kn`,
   },
   {
+    key: "stw",
+    label: "Speed Through Water (STW)",
+    category: "Navigation",
+    unit: "kn",
+    recommendedType: "triducer",
+    icon: Waves,
+    getValue: (v) => v.stw ?? v.sog,
+    getFormatted: (v) => `${formatNum(v.stw ?? v.sog, 1)} kn`,
+  },
+  {
     key: "heading",
     label: "Heading & Compass",
     category: "Navigation",
@@ -448,13 +467,63 @@ export const VESSEL_ATTRIBUTES: VesselAttributeMeta[] = [
   },
   {
     key: "depth",
-    label: "Water Depth (Echosounder)",
+    label: "Depth Below Transducer",
     category: "Navigation",
     unit: "m",
     recommendedType: "telemetry",
     icon: Waves,
     getValue: (v) => v.depth,
     getFormatted: (v) => `${formatNum(v.depth, 1)} m`,
+  },
+  {
+    key: "waterTemp",
+    label: "Sea Water Temperature",
+    category: "Environment",
+    unit: "°C",
+    recommendedType: "telemetry",
+    icon: Thermometer,
+    getValue: (v) => v.waterTemp,
+    getFormatted: (v) => `${formatNum(v.waterTemp, 1)} °C`,
+  },
+  {
+    key: "pitch",
+    label: "Vessel Pitch / Trim",
+    category: "Navigation",
+    unit: "deg",
+    recommendedType: "attitude",
+    icon: Navigation,
+    getValue: (v) => v.pitch,
+    getFormatted: (v) => `${formatNum(v.pitch, 2)}°`,
+  },
+  {
+    key: "roll",
+    label: "Vessel Roll / Heel",
+    category: "Navigation",
+    unit: "deg",
+    recommendedType: "attitude",
+    icon: Navigation,
+    getValue: (v) => v.roll,
+    getFormatted: (v) => `${formatNum(v.roll, 2)}°`,
+  },
+  {
+    key: "logDistance",
+    label: "Total Distance Log",
+    category: "Navigation",
+    unit: "NM",
+    recommendedType: "telemetry",
+    icon: Route,
+    getValue: (v) => v.logDistance,
+    getFormatted: (v) => `${formatNum(v.logDistance, 2)} NM`,
+  },
+  {
+    key: "tripDistance",
+    label: "Trip Distance Log",
+    category: "Navigation",
+    unit: "NM",
+    recommendedType: "telemetry",
+    icon: Route,
+    getValue: (v) => v.tripDistance,
+    getFormatted: (v) => `${formatNum(v.tripDistance, 2)} NM`,
   },
   {
     key: "fuel",
@@ -1187,6 +1256,555 @@ function CompassDial({
           strokeWidth="6"
           opacity="0.5"
         />
+      </svg>
+    </div>
+  )
+}
+
+function TriducerDial({
+  primaryValue,
+  primaryLabel = "Speed",
+  primaryUnit = "kn",
+  secondaryValue,
+  secondaryLabel = "Depth below transducer",
+  secondaryUnit = "m",
+  showSecondary = true,
+  tertiaryValue,
+  tertiaryLabel = "Temperature",
+  tertiaryUnit = "°C",
+  showTertiary = true,
+  min = 0,
+  max = 39,
+  decimals = 1,
+}: {
+  primaryValue: number | null | undefined
+  primaryLabel?: string
+  primaryUnit?: string
+  secondaryValue?: number | null | undefined
+  secondaryLabel?: string
+  secondaryUnit?: string
+  showSecondary?: boolean
+  tertiaryValue?: number | null | undefined
+  tertiaryLabel?: string
+  tertiaryUnit?: string
+  showTertiary?: boolean
+  min?: number
+  max?: number
+  decimals?: number
+}) {
+  const safeVal = typeof primaryValue === "number" && !isNaN(primaryValue) ? primaryValue : min
+  const range = max - min || 1
+  const normalized = Math.min(Math.max((safeVal - min) / range, 0), 1)
+  // Arc from -95 deg (left horizontal-ish) to +95 deg (right horizontal-ish) like Airmar CAST DST810 dial
+  const startAngle = -95
+  const endAngle = 95
+  const totalSweep = endAngle - startAngle
+  const needleAngle = startAngle + normalized * totalSweep
+
+  // 11 major scale numbers matching Airmar CAST DST810 (0, 4, 8, 12, 16, 19, 23, 27, 31, 35, 39 when min=0, max=39)
+  const scaleSteps = 10
+  const scaleNumbers = Array.from({ length: scaleSteps + 1 }, (_, i) => {
+    const pct = i / scaleSteps
+    const angle = startAngle + pct * totalSweep
+    const val = min + pct * range
+    const pos = polarToCartesian(120, 108, 72, angle)
+    return { angle, val: Math.round(val).toString(), pos }
+  })
+
+  // 50 fine tick marks along the upper semi-circle
+  const tickCount = 50
+  const ticks = Array.from({ length: tickCount + 1 }, (_, i) => {
+    const pct = i / tickCount
+    const angle = startAngle + pct * totalSweep
+    const isMajor = i % 5 === 0
+    const p1 = polarToCartesian(120, 108, 96, angle)
+    const p2 = polarToCartesian(120, 108, isMajor ? 87 : 91, angle)
+    return { angle, isMajor, p1, p2 }
+  })
+
+  const fmtVal = (v: number | null | undefined, dec = decimals) =>
+    typeof v === "number" && !isNaN(v) ? v.toFixed(dec) : "—"
+
+  return (
+    <div className="relative h-full w-full flex items-center justify-center p-1 select-none overflow-hidden">
+      <svg
+        viewBox="0 0 240 236"
+        className="h-full w-full max-h-full max-w-full overflow-visible filter drop-shadow-md"
+      >
+        <defs>
+          <radialGradient id="dst810DialBg" cx="50%" cy="42%" r="58%">
+            <stop offset="0%" stopColor="#52525b" />
+            <stop offset="55%" stopColor="#27272a" />
+            <stop offset="85%" stopColor="#09090b" />
+            <stop offset="100%" stopColor="#000000" />
+          </radialGradient>
+          <linearGradient id="dst810PillBg" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#52525b" />
+            <stop offset="50%" stopColor="#3f3f46" />
+            <stop offset="100%" stopColor="#27272a" />
+          </linearGradient>
+        </defs>
+
+        {/* Main Circular Black/Grey Dial Face */}
+        <circle cx="120" cy="108" r="98" fill="url(#dst810DialBg)" stroke="#3f3f46" strokeWidth="1.5" />
+
+        {/* Upper Scale Ticks */}
+        {ticks.map((t, idx) => (
+          <line
+            key={idx}
+            x1={t.p1.x}
+            y1={t.p1.y}
+            x2={t.p2.x}
+            y2={t.p2.y}
+            stroke="#f8fafc"
+            strokeWidth={t.isMajor ? 2.2 : 1.1}
+            strokeLinecap="round"
+            opacity={t.isMajor ? 0.95 : 0.75}
+          />
+        ))}
+
+        {/* Scale Numbers (0, 4, 8, 12, 16, 19, 23, 27, 31, 35, 39) */}
+        {scaleNumbers.map((s, idx) => (
+          <text
+            key={idx}
+            x={s.pos.x}
+            y={s.pos.y}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fill="#f1f5f9"
+            className="text-[9.5px] font-semibold select-none"
+            style={{ fontFamily: "system-ui, -apple-system, sans-serif" }}
+          >
+            {s.val}
+          </text>
+        ))}
+
+        {/* Red Speedometer Pointer Needle (Airmar CAST Style) */}
+        <g
+          transform={`rotate(${needleAngle} 120 108)`}
+          style={{ transition: "transform 0.35s cubic-bezier(0.4, 0, 0.2, 1)" }}
+        >
+          <polygon
+            points="-2.8,0 -0.8,-86 0,-91 0.8,-86 2.8,0"
+            fill="#dc2626"
+            transform="translate(120, 108)"
+          />
+        </g>
+
+        {/* White Center Pivot Hub */}
+        <circle cx="120" cy="108" r="10.5" fill="#e4e4e7" stroke="#71717a" strokeWidth="1" />
+
+        {/* Pill 1: Primary Attribute (Speed 7.7kn) */}
+        <g transform="translate(62, 118)">
+          <rect
+            x="0"
+            y="0"
+            width="116"
+            height="26"
+            rx="6"
+            fill="url(#dst810PillBg)"
+            stroke="#a1a1aa"
+            strokeWidth="2"
+          />
+          <text
+            x="58"
+            y="17"
+            textAnchor="middle"
+            fill="#ffffff"
+            className="text-[12.5px] font-medium tracking-tight"
+          >
+            {primaryLabel}{" "}
+            <tspan className="font-bold">
+              {fmtVal(primaryValue, decimals)}
+              {primaryUnit}
+            </tspan>
+          </text>
+        </g>
+
+        {/* Pill 2: Secondary Attribute (Depth below transducer 15.5m) */}
+        {showSecondary && (
+          <g transform="translate(10, 151)">
+            <rect
+              x="0"
+              y="0"
+              width="220"
+              height="26"
+              rx="6"
+              fill="url(#dst810PillBg)"
+              stroke="#a1a1aa"
+              strokeWidth="2"
+            />
+            <text
+              x="110"
+              y="17"
+              textAnchor="middle"
+              fill="#ffffff"
+              className="text-[11.5px] font-medium tracking-tight"
+            >
+              {secondaryLabel}{" "}
+              <tspan className="font-bold">
+                {fmtVal(secondaryValue, decimals)}
+                {secondaryUnit}
+              </tspan>
+            </text>
+          </g>
+        )}
+
+        {/* Pill 3: Tertiary Attribute (Temperature 21.5°C) */}
+        {showTertiary && (
+          <g transform={`translate(44, ${showSecondary ? 184 : 151})`}>
+            <rect
+              x="0"
+              y="0"
+              width="152"
+              height="26"
+              rx="6"
+              fill="url(#dst810PillBg)"
+              stroke="#a1a1aa"
+              strokeWidth="2"
+            />
+            <text
+              x="76"
+              y="17"
+              textAnchor="middle"
+              fill="#ffffff"
+              className="text-[12px] font-medium tracking-tight"
+            >
+              {tertiaryLabel}{" "}
+              <tspan className="font-bold">
+                {fmtVal(tertiaryValue, 1)}
+                {tertiaryUnit}
+              </tspan>
+            </text>
+          </g>
+        )}
+      </svg>
+    </div>
+  )
+}
+
+function AttitudeDial({
+  primaryAngle,
+  primaryLabel = "Pitch",
+  secondaryAngle,
+  secondaryLabel = "Roll",
+  showSecondary = true,
+  maxAngle = 30,
+  decimals = 2,
+}: {
+  primaryAngle: number | null | undefined
+  primaryLabel?: string
+  secondaryAngle?: number | null | undefined
+  secondaryLabel?: string
+  showSecondary?: boolean
+  maxAngle?: number
+  decimals?: number
+}) {
+  const safePrimary = typeof primaryAngle === "number" && !isNaN(primaryAngle) ? primaryAngle : 0
+  const safeSecondary = typeof secondaryAngle === "number" && !isNaN(secondaryAngle) ? secondaryAngle : 0
+
+  // Determine which value drives the visual boat roll (heel) vs pitch (trim)
+  const pLower = primaryLabel.toLowerCase()
+  const sLower = secondaryLabel.toLowerCase()
+  const rollDeg = sLower.includes("roll") || sLower.includes("heel")
+    ? safeSecondary
+    : pLower.includes("roll") || pLower.includes("heel")
+    ? safePrimary
+    : safeSecondary
+  const pitchDeg = pLower.includes("pitch") || pLower.includes("trim")
+    ? safePrimary
+    : sLower.includes("pitch") || sLower.includes("trim")
+    ? safeSecondary
+    : safePrimary
+
+  const effectiveMax = maxAngle > 0 ? maxAngle : 30
+  // Map [-effectiveMax .. +effectiveMax] onto [-45 deg .. +45 deg] arc at the top of the clinometer
+  const clampedRoll = Math.max(-effectiveMax * 1.25, Math.min(effectiveMax * 1.25, rollDeg))
+  const visualRollAngle = (clampedRoll / effectiveMax) * 45
+  const clampedPitchShift = Math.max(-10, Math.min(10, pitchDeg * 0.7))
+
+  // Top scale ticks from -45 deg to +45 deg (representing -maxAngle to +maxAngle)
+  const scaleTicks = Array.from({ length: 19 }, (_, i) => {
+    const step = i - 9 // -9 .. +9
+    const arcAngle = (step / 9) * 45
+    const isMajor = step % 3 === 0
+    const p1 = polarToCartesian(110, 110, 92, arcAngle)
+    const p2 = polarToCartesian(110, 110, isMajor ? 79 : 86, arcAngle)
+    return { arcAngle, isMajor, p1, p2 }
+  })
+
+  // Outer bezel ticks (full 360 metallic knurling)
+  const bezelTicks = Array.from({ length: 72 }, (_, i) => {
+    const angle = i * 5
+    const p1 = polarToCartesian(110, 110, 99, angle)
+    const p2 = polarToCartesian(110, 110, 94, angle)
+    return { p1, p2 }
+  })
+
+  const leftLabelPos = polarToCartesian(110, 110, 69, -30)
+  const zeroLabelPos = polarToCartesian(110, 110, 69, 0)
+  const rightLabelPos = polarToCartesian(110, 110, 69, 30)
+
+  const fmtAngle = (val: number | null | undefined) =>
+    typeof val === "number" && !isNaN(val) ? `${val.toFixed(decimals)}°` : "—"
+
+  return (
+    <div className="relative h-full w-full flex items-center justify-center p-1 select-none overflow-hidden">
+      <svg
+        viewBox="0 0 220 228"
+        className="h-full w-full max-h-full max-w-full overflow-visible filter drop-shadow-md"
+      >
+        <defs>
+          <clipPath id="attitudeInnerClip">
+            <circle cx="110" cy="110" r="91" />
+          </clipPath>
+          <radialGradient id="attitudeSkyGrad" cx="50%" cy="35%" r="65%">
+            <stop offset="0%" stopColor="#4b6b94" />
+            <stop offset="55%" stopColor="#1e4b85" />
+            <stop offset="100%" stopColor="#123666" />
+          </radialGradient>
+          <linearGradient id="attitudeReadoutBg" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#52525b" />
+            <stop offset="50%" stopColor="#3f3f46" />
+            <stop offset="100%" stopColor="#27272a" />
+          </linearGradient>
+        </defs>
+
+        {/* 1. Outer Knurled Metallic Bezel Ring */}
+        <circle cx="110" cy="110" r="101" fill="#27272a" stroke="#71717a" strokeWidth="2.5" />
+        {bezelTicks.map((bt, idx) => (
+          <line
+            key={idx}
+            x1={bt.p1.x}
+            y1={bt.p1.y}
+            x2={bt.p2.x}
+            y2={bt.p2.y}
+            stroke="#52525b"
+            strokeWidth="1.4"
+          />
+        ))}
+
+        {/* 2. Clipped Inner Horizon (Blue Upper / Grey Lower) */}
+        <g clipPath="url(#attitudeInnerClip)">
+          {/* Upper Blue Dome */}
+          <rect x="0" y="0" width="220" height="220" fill="url(#attitudeSkyGrad)" />
+          {/* Lower Grey Horizon (shifts slightly with Pitch) */}
+          <rect
+            x="0"
+            y={122 + clampedPitchShift}
+            width="220"
+            height="120"
+            fill="#9ca3af"
+            style={{ transition: "y 0.35s ease-out" }}
+          />
+          {/* Subtle Inner Shading */}
+          <circle cx="110" cy="110" r="91" fill="none" stroke="#0f172a" strokeWidth="4" opacity="0.35" />
+        </g>
+
+        {/* 3. Port (Red: -45° to 0°) & Starboard (Green: 0° to +45°) Heel Scale Arcs */}
+        <path
+          d={describeArc(110, 110, 90, -45, 0)}
+          fill="none"
+          stroke="#991b1b"
+          strokeWidth="5.5"
+        />
+        <path
+          d={describeArc(110, 110, 90, 0, 45)}
+          fill="none"
+          stroke="#15803d"
+          strokeWidth="5.5"
+        />
+
+        {/* 4. Top Clinometer Degree Ticks */}
+        {scaleTicks.map((t, idx) => (
+          <line
+            key={idx}
+            x1={t.p1.x}
+            y1={t.p1.y}
+            x2={t.p2.x}
+            y2={t.p2.y}
+            stroke="#f8fafc"
+            strokeWidth={t.isMajor ? 2.2 : 1.1}
+            strokeLinecap="round"
+          />
+        ))}
+
+        {/* 5. Scale Labels (-30, 0, 30) */}
+        <text
+          x={leftLabelPos.x}
+          y={leftLabelPos.y}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fill="#f1f5f9"
+          className="text-[9.5px] font-semibold"
+        >
+          -{Math.round(effectiveMax * (2 / 3))}
+        </text>
+        <text
+          x={zeroLabelPos.x}
+          y={zeroLabelPos.y}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fill="#f1f5f9"
+          className="text-[9.5px] font-semibold"
+        >
+          0
+        </text>
+        <text
+          x={rightLabelPos.x}
+          y={rightLabelPos.y}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fill="#f1f5f9"
+          className="text-[9.5px] font-semibold"
+        >
+          {Math.round(effectiveMax * (2 / 3))}
+        </text>
+
+        {/* 6. Animated Boat Hull & Mast (Tilts with Roll/Heel and shifts with Pitch/Trim) */}
+        <g
+          transform={`translate(0, ${clampedPitchShift}) rotate(${visualRollAngle} 110 122)`}
+          style={{ transition: "transform 0.35s cubic-bezier(0.4, 0, 0.2, 1)" }}
+        >
+          {/* Mast / Pointer */}
+          <polygon
+            points="108.2,102 109.2,30 110.8,30 111.8,102"
+            fill="#d4d4d8"
+            stroke="#52525b"
+            strokeWidth="0.6"
+          />
+          {/* Cabin Superstructure */}
+          <path
+            d="M 80 113 L 92 98 L 128 98 L 140 113 Z"
+            fill="#d4d4d8"
+            stroke="#52525b"
+            strokeWidth="0.9"
+          />
+          {/* Cabin Center Window */}
+          <rect
+            x="101"
+            y="100"
+            width="18"
+            height="12"
+            rx="1"
+            fill="#3f3f46"
+          />
+          {/* Boat Hull (Bow/Stern Transom Profile) */}
+          <path
+            d="M 62 113 Q 110 110 158 113 L 151 132 Q 138 144 110 146 Q 82 144 69 132 Z"
+            fill="#e4e4e7"
+            stroke="#52525b"
+            strokeWidth="1"
+          />
+          {/* Keel Fin */}
+          <path
+            d="M 106 145 L 108 153 L 112 153 L 114 145 Z"
+            fill="#e4e4e7"
+            stroke="#52525b"
+            strokeWidth="0.8"
+          />
+        </g>
+
+        {/* 7. Bottom Left & Right Digital Readout Boxes (Pitch & Roll) */}
+        {showSecondary ? (
+          <>
+            {/* Left Box: Primary (Pitch) */}
+            <g transform="translate(26, 168)">
+              <rect
+                x="0"
+                y="0"
+                width="74"
+                height="48"
+                rx="10"
+                fill="url(#attitudeReadoutBg)"
+                stroke="#a1a1aa"
+                strokeWidth="2.2"
+              />
+              <text
+                x="37"
+                y="19"
+                textAnchor="middle"
+                fill="#f4f4f5"
+                className="text-[12px] font-medium"
+              >
+                {primaryLabel}
+              </text>
+              <text
+                x="37"
+                y="39"
+                textAnchor="middle"
+                fill="#ffffff"
+                className="text-[14px] font-bold tabular-nums"
+              >
+                {fmtAngle(primaryAngle)}
+              </text>
+            </g>
+
+            {/* Right Box: Secondary (Roll) */}
+            <g transform="translate(120, 168)">
+              <rect
+                x="0"
+                y="0"
+                width="74"
+                height="48"
+                rx="10"
+                fill="url(#attitudeReadoutBg)"
+                stroke="#a1a1aa"
+                strokeWidth="2.2"
+              />
+              <text
+                x="37"
+                y="19"
+                textAnchor="middle"
+                fill="#f4f4f5"
+                className="text-[12px] font-medium"
+              >
+                {secondaryLabel}
+              </text>
+              <text
+                x="37"
+                y="39"
+                textAnchor="middle"
+                fill="#ffffff"
+                className="text-[14px] font-bold tabular-nums"
+              >
+                {fmtAngle(secondaryAngle)}
+              </text>
+            </g>
+          </>
+        ) : (
+          /* Single Centered Box if Secondary is None */
+          <g transform="translate(68, 168)">
+            <rect
+              x="0"
+              y="0"
+              width="84"
+              height="48"
+              rx="10"
+              fill="url(#attitudeReadoutBg)"
+              stroke="#a1a1aa"
+              strokeWidth="2.2"
+            />
+            <text
+              x="42"
+              y="19"
+              textAnchor="middle"
+              fill="#f4f4f5"
+              className="text-[12px] font-medium"
+            >
+              {primaryLabel}
+            </text>
+            <text
+              x="42"
+              y="39"
+              textAnchor="middle"
+              fill="#ffffff"
+              className="text-[14px] font-bold tabular-nums"
+            >
+              {fmtAngle(primaryAngle)}
+            </text>
+          </g>
+        )}
       </svg>
     </div>
   )
@@ -3532,6 +4150,107 @@ function WidgetContent({
     )
   }
 
+  if (widget.type === "triducer") {
+    const primaryKey = widget.attributeKey || "stw"
+    const secondaryKey = widget.secondaryAttributeKey !== undefined ? widget.secondaryAttributeKey : "depth"
+    const tertiaryKey = widget.tertiaryAttributeKey !== undefined ? widget.tertiaryAttributeKey : "waterTemp"
+
+    const resolveShortLabel = (k: string, fallbackLabel?: string) => {
+      const clean = k.toLowerCase()
+      if (clean === "stw" || clean === "sog" || clean === "speed") return "Speed"
+      if (clean === "depth" || clean.includes("depth")) return "Depth below transducer"
+      if (clean === "watertemp" || clean === "water_temp" || clean.includes("temp")) return "Temperature"
+      if (clean === "pitch") return "Pitch"
+      if (clean === "roll") return "Roll"
+      if (clean === "logdistance" || clean === "log_distance") return "Total Log"
+      if (clean === "tripdistance" || clean === "trip_distance") return "Trip Log"
+      return fallbackLabel || k
+    }
+
+    const resolveDefaultUnit = (k: string, metaUnit?: string) => {
+      if (metaUnit) return metaUnit
+      const clean = k.toLowerCase()
+      if (clean.includes("stw") || clean.includes("sog") || clean.includes("speed") || clean.includes("wind")) return "kn"
+      if (clean.includes("depth")) return "m"
+      if (clean.includes("temp")) return "°C"
+      if (clean.includes("pitch") || clean.includes("roll") || clean.includes("heading") || clean.includes("cog") || clean.includes("angle")) return "°"
+      if (clean.includes("log") || clean.includes("dist")) return "NM"
+      return ""
+    }
+
+    const pMeta = VESSEL_ATTRIBUTES.find((a) => a.key === primaryKey)
+    const pVal = getVesselAttributeValue(vessel, primaryKey) ?? (pMeta ? pMeta.getValue(vessel) : (vessel.stw ?? vessel.sog))
+
+    const hasSec = Boolean(secondaryKey && secondaryKey !== "none")
+    const sMeta = hasSec ? VESSEL_ATTRIBUTES.find((a) => a.key === secondaryKey) : null
+    const sVal = hasSec ? (getVesselAttributeValue(vessel, secondaryKey) ?? (sMeta ? sMeta.getValue(vessel) : vessel.depth)) : null
+
+    const hasTert = Boolean(tertiaryKey && tertiaryKey !== "none")
+    const tMeta = hasTert ? VESSEL_ATTRIBUTES.find((a) => a.key === tertiaryKey) : null
+    const tVal = hasTert ? (getVesselAttributeValue(vessel, tertiaryKey) ?? (tMeta ? tMeta.getValue(vessel) : vessel.waterTemp)) : null
+
+    return (
+      <TriducerDial
+        primaryValue={typeof pVal === "number" ? pVal : 0}
+        primaryLabel={resolveShortLabel(primaryKey, pMeta?.label)}
+        primaryUnit={cfg.unit || resolveDefaultUnit(primaryKey, pMeta?.unit === "knots" ? "kn" : pMeta?.unit)}
+        secondaryValue={typeof sVal === "number" ? sVal : null}
+        secondaryLabel={hasSec ? resolveShortLabel(secondaryKey, sMeta?.label) : ""}
+        secondaryUnit={hasSec ? resolveDefaultUnit(secondaryKey, sMeta?.unit) : ""}
+        showSecondary={hasSec}
+        tertiaryValue={typeof tVal === "number" ? tVal : null}
+        tertiaryLabel={hasTert ? resolveShortLabel(tertiaryKey, tMeta?.label) : ""}
+        tertiaryUnit={hasTert ? resolveDefaultUnit(tertiaryKey, tMeta?.unit) : ""}
+        showTertiary={hasTert}
+        min={cfg.min ?? 0}
+        max={cfg.max ?? 39}
+        decimals={cfg.decimals ?? 1}
+      />
+    )
+  }
+
+  if (widget.type === "attitude") {
+    const primaryKey = widget.attributeKey || "pitch"
+    const secondaryKey =
+      widget.secondaryAttributeKey !== undefined
+        ? widget.secondaryAttributeKey
+        : primaryKey === "roll"
+        ? "pitch"
+        : "roll"
+
+    const resolveAttitudeLabel = (k: string, fallback?: string) => {
+      const clean = k.toLowerCase()
+      if (clean.includes("pitch") || clean.includes("trim")) return "Pitch"
+      if (clean.includes("roll") || clean.includes("heel")) return "Roll"
+      if (clean === "heading") return "Heading"
+      if (clean === "cog") return "COG"
+      return fallback || k
+    }
+
+    const pMeta = VESSEL_ATTRIBUTES.find((a) => a.key === primaryKey)
+    const pRaw = getVesselAttributeValue(vessel, primaryKey) ?? (pMeta ? pMeta.getValue(vessel) : vessel.pitch)
+    const primaryAngle = typeof pRaw === "number" && !isNaN(pRaw) ? pRaw : 0
+
+    const hasSecondary = Boolean(secondaryKey && secondaryKey !== "none")
+    const sMeta = hasSecondary ? VESSEL_ATTRIBUTES.find((a) => a.key === secondaryKey) : null
+    const sRaw = hasSecondary
+      ? (getVesselAttributeValue(vessel, secondaryKey) ?? (sMeta ? sMeta.getValue(vessel) : vessel.roll))
+      : null
+    const secondaryAngle = typeof sRaw === "number" && !isNaN(sRaw) ? sRaw : null
+
+    return (
+      <AttitudeDial
+        primaryAngle={primaryAngle}
+        primaryLabel={resolveAttitudeLabel(primaryKey, pMeta?.label)}
+        secondaryAngle={secondaryAngle}
+        secondaryLabel={hasSecondary ? resolveAttitudeLabel(secondaryKey, sMeta?.label) : ""}
+        showSecondary={hasSecondary}
+        maxAngle={cfg.max ?? 30}
+        decimals={cfg.decimals ?? 2}
+      />
+    )
+  }
+
   if (widget.type === "telemetry") {
     return (
       <DynamicAttributeCard
@@ -3695,6 +4414,8 @@ const PALETTE_WIDGETS: PaletteItem[] = [
   { type: "kpi", label: "KPI", icon: Zap, defaultW: 3, defaultH: 3, attributeKey: "fuel" },
   { type: "speed", label: "Gauge", icon: Gauge, defaultW: 3, defaultH: 4, attributeKey: "sog" },
   { type: "heading", label: "Compass", icon: Compass, defaultW: 3, defaultH: 4, attributeKey: "heading" },
+  { type: "triducer", label: "Triducer", icon: CircleGauge, defaultW: 3, defaultH: 5, attributeKey: "stw" },
+  { type: "attitude", label: "Attitude", icon: Navigation, defaultW: 3, defaultH: 5, attributeKey: "pitch" },
   { type: "chart", label: "Line Chart", icon: Activity, defaultW: 6, defaultH: 4, attributeKey: "rpm" },
   { type: "bar", label: "Depth Column", icon: Waves, defaultW: 3, defaultH: 4, attributeKey: "depth" },
   { type: "map", label: "Map", icon: Map, defaultW: 6, defaultH: 5, attributeKey: "position" },
@@ -3746,13 +4467,38 @@ function isAttributeRegisteredOnVessel(
 }
 
 export function MonitoringPage() {
-  const { vessels: allVessels } = useFleet()
+  const { vessels, allVessels } = useFleet()
   const { user, canAccessVessel, canAccessSection, isSuperadmin } = useAuth()
 
-  // Filter vessels strictly to vessels the user has permission to access
-  const vessels = useMemo(() => {
-    return allVessels.filter((v) => canAccessVessel(v.id))
-  }, [allVessels, canAccessVessel])
+  // Helper to detect which vessel a section belongs to (by section name or majority widget vesselId)
+  const getSectionVesselId = useCallback(
+    (sec?: DashboardSection | null): string | null => {
+      if (!sec) return null
+      const cleanSecName = (sec.name || "").trim().toLowerCase()
+      if (cleanSecName && allVessels && allVessels.length > 0) {
+        const matchedVessel = allVessels.find((v) => {
+          const vName = (v.name || "").trim().toLowerCase()
+          return vName.length > 0 && (cleanSecName === vName || cleanSecName.includes(vName))
+        })
+        if (matchedVessel) return matchedVessel.id
+      }
+
+      const counts: Record<string, number> = {}
+      let bestId: string | null = null
+      let bestCount = 0
+      for (const w of sec.widgets || []) {
+        if (w.vesselId && w.vesselId.trim() !== "") {
+          counts[w.vesselId] = (counts[w.vesselId] || 0) + 1
+          if (counts[w.vesselId] > bestCount) {
+            bestCount = counts[w.vesselId]
+            bestId = w.vesselId
+          }
+        }
+      }
+      return bestId
+    },
+    [allVessels]
+  )
 
   const mainContainerRef = useRef<HTMLElement>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -3924,6 +4670,7 @@ export function MonitoringPage() {
   const [pickerVesselId, setPickerVesselId] = useState("")
   const [pickerAttrKey, setPickerAttrKey] = useState("")
   const [pickerSecondaryAttrKey, setPickerSecondaryAttrKey] = useState<string>("cog")
+  const [pickerTertiaryAttrKey, setPickerTertiaryAttrKey] = useState<string>("waterTemp")
   const [attrSearch, setAttrSearch] = useState("")
   const [attrCategoryFilter, setAttrCategoryFilter] = useState<string>("all")
 
@@ -3984,10 +4731,28 @@ export function MonitoringPage() {
     }
   }, [sections, lastSavedSnapshot])
 
-  // Allowed sections based on user role permissions
+  // Allowed sections based on user role permissions & vessel access permissions
   const allowedSections = useMemo(() => {
-    return sections.filter((s) => canAccessSection(s.id, "read"))
-  }, [sections, canAccessSection])
+    return sections.filter((s) => {
+      // 1. Role-level section permission
+      if (!canAccessSection(s.id, "read")) return false
+      if (isSuperadmin) return true
+
+      // 2. Vessel-level permission: if section corresponds to a vessel, user must have access to that vessel
+      const secVesselId = getSectionVesselId(s)
+      if (secVesselId && !canAccessVessel(secVesselId)) {
+        return false
+      }
+
+      // 3. Hide section if all of its explicitly bound widgets belong to vessels the user cannot access
+      const explicitWidgets = (s.widgets || []).filter((w) => w.vesselId && w.vesselId.trim() !== "")
+      if (explicitWidgets.length > 0 && !explicitWidgets.some((w) => canAccessVessel(w.vesselId))) {
+        return false
+      }
+
+      return true
+    })
+  }, [sections, canAccessSection, isSuperadmin, getSectionVesselId, canAccessVessel])
 
   // Active section resolution: must be from allowedSections
   const activeSection =
@@ -4140,19 +4905,48 @@ export function MonitoringPage() {
   }, [selectedWidget, selectedWidgetVessel, vesselAttributesMap])
 
   const selectedWidgetSecondaryMeta = useMemo(() => {
-    if (!selectedWidget || selectedWidget.type !== "heading") return null
+    if (
+      !selectedWidget ||
+      (selectedWidget.type !== "heading" &&
+        selectedWidget.type !== "attitude" &&
+        selectedWidget.type !== "triducer")
+    ) {
+      return null
+    }
     const secKey =
       selectedWidget.secondaryAttributeKey !== undefined
         ? selectedWidget.secondaryAttributeKey
-        : selectedWidget.attributeKey === "cog"
-        ? "heading"
-        : "cog"
+        : selectedWidget.type === "heading"
+        ? selectedWidget.attributeKey === "cog"
+          ? "heading"
+          : "cog"
+        : selectedWidget.type === "attitude"
+        ? selectedWidget.attributeKey === "roll"
+          ? "pitch"
+          : "roll"
+        : "depth"
     if (!secKey || secKey === "none") return null
     const vAttrs = selectedWidget.vesselId ? vesselAttributesMap[selectedWidget.vesselId] : undefined
     const dynamicAttrs = buildDynamicVesselAttributes(selectedWidgetVessel, vAttrs)
     return (
       dynamicAttrs.find((a) => a.key === secKey) ||
       VESSEL_ATTRIBUTES.find((a) => a.key === secKey) ||
+      null
+    )
+  }, [selectedWidget, selectedWidgetVessel, vesselAttributesMap])
+
+  const selectedWidgetTertiaryMeta = useMemo(() => {
+    if (!selectedWidget || selectedWidget.type !== "triducer") return null
+    const tertKey =
+      selectedWidget.tertiaryAttributeKey !== undefined
+        ? selectedWidget.tertiaryAttributeKey
+        : "waterTemp"
+    if (!tertKey || tertKey === "none") return null
+    const vAttrs = selectedWidget.vesselId ? vesselAttributesMap[selectedWidget.vesselId] : undefined
+    const dynamicAttrs = buildDynamicVesselAttributes(selectedWidgetVessel, vAttrs)
+    return (
+      dynamicAttrs.find((a) => a.key === tertKey) ||
+      VESSEL_ATTRIBUTES.find((a) => a.key === tertKey) ||
       null
     )
   }, [selectedWidget, selectedWidgetVessel, vesselAttributesMap])
@@ -4191,10 +4985,26 @@ export function MonitoringPage() {
       if (!hasPrimary) {
         setPickerAttrKey(filteredPickerAttributes[0].key)
       }
-      if (selectedWidget?.type === "heading" && pickerSecondaryAttrKey && pickerSecondaryAttrKey !== "none") {
+      if (
+        (selectedWidget?.type === "heading" ||
+          selectedWidget?.type === "attitude" ||
+          selectedWidget?.type === "triducer") &&
+        pickerSecondaryAttrKey &&
+        pickerSecondaryAttrKey !== "none"
+      ) {
         const hasSecondary = filteredPickerAttributes.some((a) => a.key === pickerSecondaryAttrKey)
         if (!hasSecondary) {
           setPickerSecondaryAttrKey("none")
+        }
+      }
+      if (
+        selectedWidget?.type === "triducer" &&
+        pickerTertiaryAttrKey &&
+        pickerTertiaryAttrKey !== "none"
+      ) {
+        const hasTertiary = filteredPickerAttributes.some((a) => a.key === pickerTertiaryAttrKey)
+        if (!hasTertiary) {
+          setPickerTertiaryAttrKey("none")
         }
       }
     }
@@ -4314,7 +5124,9 @@ export function MonitoringPage() {
   ) {
     if (dashboardMode !== "modify" || !layoutItem) return
     const id = `${droppingWidget.type}-${Date.now()}`
-    const targetVesselId = droppingWidget.vesselId || vessels[0]?.id || ""
+    const secVesselId = getSectionVesselId(activeSection)
+    const defaultSecVessel = secVesselId && canAccessVessel(secVesselId) ? secVesselId : (vessels[0]?.id || "")
+    const targetVesselId = droppingWidget.vesselId || defaultSecVessel
     const meta = VESSEL_ATTRIBUTES.find((a) => a.key === droppingWidget.attributeKey)
 
     const newWidget: WidgetDef = {
@@ -4323,17 +5135,31 @@ export function MonitoringPage() {
       title: droppingWidget.title || meta?.label || "Widget",
       vesselId: targetVesselId,
       attributeKey: droppingWidget.attributeKey || "sog",
-      ...(droppingWidget.type === "heading" ? { secondaryAttributeKey: "cog" } : {}),
+      ...(droppingWidget.type === "heading"
+        ? { secondaryAttributeKey: "cog" }
+        : droppingWidget.type === "attitude"
+        ? { secondaryAttributeKey: "roll" }
+        : droppingWidget.type === "triducer"
+        ? { secondaryAttributeKey: "depth", tertiaryAttributeKey: "waterTemp" }
+        : {}),
       config: {
         min: 0,
         max:
-          droppingWidget.attributeKey === "rpm"
+          droppingWidget.type === "triducer"
+            ? 39
+            : droppingWidget.type === "attitude"
+            ? 30
+            : droppingWidget.attributeKey === "rpm"
             ? 3000
             : droppingWidget.attributeKey === "fuel" || droppingWidget.attributeKey === "engineLoad"
             ? 100
             : 24,
         decimals:
-          droppingWidget.attributeKey === "rpm" || droppingWidget.attributeKey === "fuel" ? 0 : 1,
+          droppingWidget.type === "attitude"
+            ? 2
+            : droppingWidget.attributeKey === "rpm" || droppingWidget.attributeKey === "fuel"
+            ? 0
+            : 1,
         unit: meta?.unit || "",
         thresholds: { green: 0, orange: 25, red: 80 },
       },
@@ -4377,7 +5203,8 @@ export function MonitoringPage() {
   // Quick add widget palette directly
   function handleAddWidgetPaletteDirectly(palette: PaletteItem) {
     if (dashboardMode !== "modify") return
-    const targetVesselId = vessels[0]?.id || ""
+    const secVesselId = getSectionVesselId(activeSection)
+    const targetVesselId = (secVesselId && canAccessVessel(secVesselId) ? secVesselId : vessels[0]?.id) || ""
     const id = `${palette.type}-${Date.now()}`
     const meta = VESSEL_ATTRIBUTES.find((a) => a.key === palette.attributeKey)
 
@@ -4407,16 +5234,31 @@ export function MonitoringPage() {
       title: palette.label,
       vesselId: targetVesselId,
       attributeKey: palette.attributeKey,
-      ...(palette.type === "heading" ? { secondaryAttributeKey: "cog" } : {}),
+      ...(palette.type === "heading"
+        ? { secondaryAttributeKey: "cog" }
+        : palette.type === "attitude"
+        ? { secondaryAttributeKey: "roll" }
+        : palette.type === "triducer"
+        ? { secondaryAttributeKey: "depth", tertiaryAttributeKey: "waterTemp" }
+        : {}),
       config: {
         min: 0,
         max:
-          palette.attributeKey === "rpm"
+          palette.type === "triducer"
+            ? 39
+            : palette.type === "attitude"
+            ? 30
+            : palette.attributeKey === "rpm"
             ? 3000
             : palette.attributeKey === "fuel" || palette.attributeKey === "engineLoad"
             ? 100
             : 24,
-        decimals: palette.attributeKey === "rpm" || palette.attributeKey === "fuel" ? 0 : 1,
+        decimals:
+          palette.type === "attitude"
+            ? 2
+            : palette.attributeKey === "rpm" || palette.attributeKey === "fuel"
+            ? 0
+            : 1,
         unit: meta?.unit || "",
         thresholds: { green: 0, orange: 25, red: 80 },
       },
@@ -4658,14 +5500,35 @@ export function MonitoringPage() {
     )
   }
 
-  // Swap Primary and Secondary attributes on compass widget
+  // Swap Primary and Secondary attributes on multi-attribute widgets
   function swapCompassAttributes() {
-    if (!selectedWidget || selectedWidget.type !== "heading") return
-    const currentPrimary = selectedWidget.attributeKey || "heading"
+    if (
+      !selectedWidget ||
+      (selectedWidget.type !== "heading" &&
+        selectedWidget.type !== "attitude" &&
+        selectedWidget.type !== "triducer")
+    ) {
+      return
+    }
+    const currentPrimary =
+      selectedWidget.attributeKey ||
+      (selectedWidget.type === "heading"
+        ? "heading"
+        : selectedWidget.type === "attitude"
+        ? "pitch"
+        : "stw")
     const currentSecondary =
       selectedWidget.secondaryAttributeKey !== undefined
         ? selectedWidget.secondaryAttributeKey
-        : (currentPrimary === "cog" ? "heading" : "cog")
+        : selectedWidget.type === "heading"
+        ? currentPrimary === "cog"
+          ? "heading"
+          : "cog"
+        : selectedWidget.type === "attitude"
+        ? currentPrimary === "roll"
+          ? "pitch"
+          : "roll"
+        : "depth"
 
     if (!currentSecondary || currentSecondary === "none") return
 
@@ -4682,8 +5545,42 @@ export function MonitoringPage() {
 
   // Handle clicking attribute card in modal
   function handleAttributeCardClick(attrKey: string) {
-    if (selectedWidget?.type === "heading") {
-      // Compass can check up to 2 attributes
+    if (selectedWidget?.type === "triducer") {
+      // Triducer can select up to 3 attributes (Primary Dial + Pill 1, Secondary Pill 2, Tertiary Pill 3)
+      if (pickerAttrKey === attrKey) {
+        if (pickerSecondaryAttrKey && pickerSecondaryAttrKey !== "none") {
+          setPickerAttrKey(pickerSecondaryAttrKey)
+          if (pickerTertiaryAttrKey && pickerTertiaryAttrKey !== "none") {
+            setPickerSecondaryAttrKey(pickerTertiaryAttrKey)
+            setPickerTertiaryAttrKey("none")
+          } else {
+            setPickerSecondaryAttrKey("none")
+          }
+        } else {
+          setPickerAttrKey("")
+        }
+      } else if (pickerSecondaryAttrKey === attrKey) {
+        if (pickerTertiaryAttrKey && pickerTertiaryAttrKey !== "none") {
+          setPickerSecondaryAttrKey(pickerTertiaryAttrKey)
+          setPickerTertiaryAttrKey("none")
+        } else {
+          setPickerSecondaryAttrKey("none")
+        }
+      } else if (pickerTertiaryAttrKey === attrKey) {
+        setPickerTertiaryAttrKey("none")
+      } else {
+        if (!pickerAttrKey) {
+          setPickerAttrKey(attrKey)
+        } else if (!pickerSecondaryAttrKey || pickerSecondaryAttrKey === "none") {
+          setPickerSecondaryAttrKey(attrKey)
+        } else if (!pickerTertiaryAttrKey || pickerTertiaryAttrKey === "none") {
+          setPickerTertiaryAttrKey(attrKey)
+        } else {
+          setPickerTertiaryAttrKey(attrKey)
+        }
+      }
+    } else if (selectedWidget?.type === "heading" || selectedWidget?.type === "attitude") {
+      // Compass & Attitude can check up to 2 attributes
       if (pickerAttrKey === attrKey) {
         // Deselect Primary: if secondary exists, promote it to primary
         if (pickerSecondaryAttrKey && pickerSecondaryAttrKey !== "none") {
@@ -4716,11 +5613,33 @@ export function MonitoringPage() {
     if (!selectedWidget) return
     const vId = selectedWidget.vesselId || vessels[0]?.id || ""
     setPickerVesselId(vId)
-    setPickerAttrKey(selectedWidget.attributeKey || (selectedWidget.type === "heading" ? "heading" : "sog"))
+    setPickerAttrKey(
+      selectedWidget.attributeKey ||
+        (selectedWidget.type === "heading"
+          ? "heading"
+          : selectedWidget.type === "attitude"
+          ? "pitch"
+          : selectedWidget.type === "triducer"
+          ? "stw"
+          : "sog"),
+    )
     setPickerSecondaryAttrKey(
       selectedWidget.secondaryAttributeKey !== undefined
         ? selectedWidget.secondaryAttributeKey
-        : (selectedWidget.attributeKey === "cog" ? "heading" : "cog"),
+        : selectedWidget.type === "heading"
+        ? selectedWidget.attributeKey === "cog"
+          ? "heading"
+          : "cog"
+        : selectedWidget.type === "attitude"
+        ? selectedWidget.attributeKey === "roll"
+          ? "pitch"
+          : "roll"
+        : "depth",
+    )
+    setPickerTertiaryAttrKey(
+      selectedWidget.tertiaryAttributeKey !== undefined
+        ? selectedWidget.tertiaryAttributeKey
+        : "waterTemp",
     )
     setAttrSearch("")
     setAttrCategoryFilter("all")
@@ -4741,7 +5660,15 @@ export function MonitoringPage() {
   function handleApplyAttributePicker() {
     if (!selectedWidget) return
     const targetVessel = vessels.find((v) => v.id === pickerVesselId)
-    const effectivePrimary = pickerAttrKey || (selectedWidget.type === "heading" ? "heading" : "sog")
+    const effectivePrimary =
+      pickerAttrKey ||
+      (selectedWidget.type === "heading"
+        ? "heading"
+        : selectedWidget.type === "attitude"
+        ? "pitch"
+        : selectedWidget.type === "triducer"
+        ? "stw"
+        : "sog")
     const targetMeta =
       availablePickerAttributes.find((a) => a.key === effectivePrimary) ||
       VESSEL_ATTRIBUTES.find((a) => a.key === effectivePrimary)
@@ -4749,12 +5676,26 @@ export function MonitoringPage() {
     const updates: Partial<WidgetDef> = {
       vesselId: pickerVesselId,
       attributeKey: effectivePrimary,
-      title: `${targetVessel?.name || "Vessel"} - ${targetMeta?.label || effectivePrimary}`,
+      title:
+        selectedWidget.type === "triducer"
+          ? `${targetVessel?.name || "Vessel"} - Triducer (${targetMeta?.label || effectivePrimary})`
+          : selectedWidget.type === "attitude"
+          ? `${targetVessel?.name || "Vessel"} - Attitude (${targetMeta?.label || effectivePrimary})`
+          : `${targetVessel?.name || "Vessel"} - ${targetMeta?.label || effectivePrimary}`,
     }
 
-    if (selectedWidget.type === "heading") {
+    if (
+      selectedWidget.type === "heading" ||
+      selectedWidget.type === "attitude" ||
+      selectedWidget.type === "triducer"
+    ) {
       updates.secondaryAttributeKey =
         pickerSecondaryAttrKey && pickerSecondaryAttrKey !== "none" ? pickerSecondaryAttrKey : "none"
+    }
+
+    if (selectedWidget.type === "triducer") {
+      updates.tertiaryAttributeKey =
+        pickerTertiaryAttrKey && pickerTertiaryAttrKey !== "none" ? pickerTertiaryAttrKey : "none"
     }
 
     updateWidget(selectedWidget.id, updates)
@@ -4762,14 +5703,27 @@ export function MonitoringPage() {
     if (targetMeta) {
       const isAngle = effectivePrimary.includes("pitch") || effectivePrimary.includes("roll")
       const defaultMax =
-        effectivePrimary === "rpm"
+        selectedWidget.type === "triducer"
+          ? effectivePrimary === "rpm"
+            ? 3000
+            : effectivePrimary === "depth"
+            ? 100
+            : 39
+          : selectedWidget.type === "attitude"
+          ? 30
+          : effectivePrimary === "rpm"
           ? 3000
           : isAngle
           ? 45
           : effectivePrimary === "fuel" || effectivePrimary === "engineLoad"
           ? 100
           : 24
-      const defaultMin = isAngle ? -45 : 0
+      const defaultMin =
+        selectedWidget.type === "attitude" || selectedWidget.type === "triducer"
+          ? 0
+          : isAngle
+          ? -45
+          : 0
 
       updateWidgetConfig(selectedWidget.id, {
         unit: targetMeta.unit,
@@ -5211,9 +6165,15 @@ export function MonitoringPage() {
                   draggableHandle=".widget-handle"
                 >
                   {activeSection.widgets.map((widget) => {
-                    const isVesselPermitted = !widget.vesselId || canAccessVessel(widget.vesselId)
+                    const secVesselId = getSectionVesselId(activeSection)
+                    const isVesselPermitted =
+                      !widget.vesselId ||
+                      canAccessVessel(widget.vesselId) ||
+                      Boolean(secVesselId && canAccessVessel(secVesselId))
                     const widgetVessel =
-                      vessels.find((v) => v.id === widget.vesselId) || (isVesselPermitted ? vessels[0] : null)
+                      vessels.find((v) => v.id === widget.vesselId) ||
+                      (secVesselId ? vessels.find((v) => v.id === secVesselId) : null) ||
+                      (isVesselPermitted ? vessels[0] : null)
                     const isSelected = dashboardMode === "modify" && selectedWidgetId === widget.id
 
                     if (!isVesselPermitted || !widgetVessel) {
@@ -5393,7 +6353,9 @@ export function MonitoringPage() {
                         />
                         <span>{selectedWidget.type === "table" || selectedWidget.type === "map" ? "Vessel Source" : "Attributes"}</span>
                       </button>
-                      {selectedWidget.type === "heading" &&
+                      {(selectedWidget.type === "heading" ||
+                        selectedWidget.type === "attitude" ||
+                        selectedWidget.type === "triducer") &&
                         selectedWidget.secondaryAttributeKey !== "none" &&
                         selectedWidgetSecondaryMeta && (
                           <button
@@ -5459,9 +6421,11 @@ export function MonitoringPage() {
                               </div>
                             </div>
                           </div>
-                        ) : selectedWidget.type === "heading" ? (
+                        ) : selectedWidget.type === "heading" ||
+                          selectedWidget.type === "attitude" ||
+                          selectedWidget.type === "triducer" ? (
                           <div className="space-y-2 mb-2.5">
-                            {/* Primary Pointer Attribute */}
+                            {/* Primary Attribute */}
                             <div
                               draggable={Boolean(selectedWidgetSecondaryMeta && selectedWidget.secondaryAttributeKey !== "none")}
                               onDragStart={(e) => {
@@ -5483,13 +6447,21 @@ export function MonitoringPage() {
                               title="Drag up or down to swap with Secondary"
                             >
                               <span className="p-2 rounded-lg bg-sky-50 text-sky-600 border border-sky-100 shrink-0">
-                                <Compass className="h-4 w-4" />
+                                {selectedWidget.type === "triducer" ? (
+                                  <Gauge className="h-4 w-4" />
+                                ) : (
+                                  <Compass className="h-4 w-4" />
+                                )}
                               </span>
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-1.5">
                                     <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-sky-100 text-sky-700">
-                                      Primary
+                                      {selectedWidget.type === "triducer"
+                                        ? "Dial + Pill 1"
+                                        : selectedWidget.type === "attitude"
+                                        ? "Primary (Pitch)"
+                                        : "Primary"}
                                     </span>
                                     <span className="text-[11px] font-bold text-slate-800 truncate">
                                       {selectedWidgetVessel?.name || "Vessel"}
@@ -5505,7 +6477,7 @@ export function MonitoringPage() {
                               </div>
                             </div>
 
-                            {/* Secondary Needle Attribute */}
+                            {/* Secondary Attribute */}
                             <div
                               draggable={Boolean(selectedWidgetSecondaryMeta && selectedWidget.secondaryAttributeKey !== "none")}
                               onDragStart={(e) => {
@@ -5527,13 +6499,21 @@ export function MonitoringPage() {
                               title="Drag up or down to swap with Primary"
                             >
                               <span className="p-2 rounded-lg bg-amber-50 text-amber-600 border border-amber-100 shrink-0">
-                                <Navigation className="h-4 w-4" />
+                                {selectedWidget.type === "triducer" ? (
+                                  <Waves className="h-4 w-4" />
+                                ) : (
+                                  <Navigation className="h-4 w-4" />
+                                )}
                               </span>
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-1.5">
                                     <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
-                                      Secondary
+                                      {selectedWidget.type === "triducer"
+                                        ? "Pill 2"
+                                        : selectedWidget.type === "attitude"
+                                        ? "Secondary (Roll)"
+                                        : "Secondary"}
                                     </span>
                                     <span className="text-[11px] font-bold text-slate-800 truncate">
                                       {selectedWidgetVessel?.name || "Vessel"}
@@ -5547,13 +6527,43 @@ export function MonitoringPage() {
                                   {selectedWidgetSecondaryMeta
                                     ? selectedWidgetSecondaryMeta.label
                                     : selectedWidget.secondaryAttributeKey === "none"
-                                    ? "None (Single Needle Only)"
+                                    ? "None"
+                                    : selectedWidget.type === "attitude"
+                                    ? "Roll / Heel Angle"
+                                    : selectedWidget.type === "triducer"
+                                    ? "Depth Below Transducer"
                                     : selectedWidget.attributeKey === "cog"
                                     ? "Heading & Compass"
                                     : "Course Over Ground (COG)"}
                                 </div>
                               </div>
                             </div>
+
+                            {/* Tertiary Attribute (Triducer only) */}
+                            {selectedWidget.type === "triducer" && (
+                              <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50 border border-slate-100 transition select-none">
+                                <span className="p-2 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-100 shrink-0">
+                                  <Thermometer className="h-4 w-4" />
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                                      Pill 3
+                                    </span>
+                                    <span className="text-[11px] font-bold text-slate-800 truncate">
+                                      {selectedWidgetVessel?.name || "Vessel"}
+                                    </span>
+                                  </div>
+                                  <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                                    {selectedWidgetTertiaryMeta
+                                      ? selectedWidgetTertiaryMeta.label
+                                      : selectedWidget.tertiaryAttributeKey === "none"
+                                      ? "None"
+                                      : "Sea Water Temperature"}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50 border border-slate-100 mb-2.5">
@@ -5579,7 +6589,13 @@ export function MonitoringPage() {
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-[#db4040] font-bold text-xs border border-red-200 transition cursor-pointer"
                           >
                             <ArrowLeftRight className="h-3.5 w-3.5" />
-                            <span>{selectedWidget.type === "heading" ? "Configure Angles" : "Attribute"}</span>
+                            <span>
+                              {selectedWidget.type === "heading" || selectedWidget.type === "attitude"
+                                ? "Configure Angles"
+                                : selectedWidget.type === "triducer"
+                                ? "Configure 3 Sensors"
+                                : "Attribute"}
+                            </span>
                           </button>
                         )}
                       </div>
@@ -5590,6 +6606,8 @@ export function MonitoringPage() {
 
                   {/* 3. Section: Values (Min, Max, Decimals) */}
                   {(selectedWidget.type === "speed" ||
+                    selectedWidget.type === "triducer" ||
+                    selectedWidget.type === "attitude" ||
                     selectedWidget.type === "telemetry" ||
                     selectedWidget.type === "kpi" ||
                     selectedWidget.type === "bar" ||
@@ -6508,16 +7526,22 @@ export function MonitoringPage() {
             </div>
           </div>
 
-          {/* Step 2: Select Attribute with Category Filter & Search (Can check 2 for Compass) */}
+          {/* Step 2: Select Attribute with Category Filter & Search (Can check 2 for Compass/Attitude, 3 for Triducer) */}
           <div>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-                  {selectedWidget?.type === "heading"
+                  {selectedWidget?.type === "triducer"
+                    ? "2. Select Up To 3 Attributes (Primary Dial, Secondary Pill, Tertiary Pill)"
+                    : selectedWidget?.type === "heading" || selectedWidget?.type === "attitude"
                     ? "2. Select Up To 2 Attributes (Primary & Secondary)"
                     : "2. Select Sensor Attribute to Display"}
                 </label>
-                {selectedWidget?.type === "heading" && (
+                {selectedWidget?.type === "triducer" ? (
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Click 1st attribute for Primary Dial & Pill 1 (Cyan), 2nd for Pill 2 (Amber), 3rd for Pill 3 (Emerald). Click any checked attribute to uncheck.
+                  </p>
+                ) : (selectedWidget?.type === "heading" || selectedWidget?.type === "attitude") && (
                   <p className="text-[11px] text-slate-400 mt-0.5">
                     Click 1st attribute for Primary (Cyan), 2nd for Secondary (Amber). Click any checked attribute to uncheck.
                   </p>
@@ -6565,10 +7589,23 @@ export function MonitoringPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-84 overflow-y-auto p-1.5 border border-slate-200 rounded-xl bg-slate-50/50">
               {filteredPickerAttributes.map((attr) => {
                 const Icon = attr.icon
-                const isHeading = selectedWidget?.type === "heading"
-                const isPrimary = isHeading && pickerAttrKey === attr.key
-                const isSecondary = isHeading && pickerSecondaryAttrKey === attr.key && pickerSecondaryAttrKey !== "none"
-                const isSelected = isHeading ? (isPrimary || isSecondary) : pickerAttrKey === attr.key
+                const isMulti =
+                  selectedWidget?.type === "heading" ||
+                  selectedWidget?.type === "attitude" ||
+                  selectedWidget?.type === "triducer"
+                const isTriducer = selectedWidget?.type === "triducer"
+                const isPrimary = isMulti && pickerAttrKey === attr.key
+                const isSecondary =
+                  isMulti &&
+                  pickerSecondaryAttrKey === attr.key &&
+                  pickerSecondaryAttrKey !== "none"
+                const isTertiary =
+                  isTriducer &&
+                  pickerTertiaryAttrKey === attr.key &&
+                  pickerTertiaryAttrKey !== "none"
+                const isSelected = isMulti
+                  ? isPrimary || isSecondary || isTertiary
+                  : pickerAttrKey === attr.key
 
                 const selectedVessel = vessels.find((v) => v.id === pickerVesselId)
                 const formattedVal = selectedVessel ? attr.getFormatted(selectedVessel) : "—"
@@ -6583,6 +7620,8 @@ export function MonitoringPage() {
                         ? "border-cyan-500 bg-cyan-50/60 shadow-xs ring-1 ring-cyan-500"
                         : isSecondary
                         ? "border-amber-500 bg-amber-50/60 shadow-xs ring-1 ring-amber-500"
+                        : isTertiary
+                        ? "border-emerald-500 bg-emerald-50/60 shadow-xs ring-1 ring-emerald-500"
                         : isSelected
                         ? "border-[#db4040] bg-red-50/60 shadow-xs ring-1 ring-[#db4040]"
                         : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/80"
@@ -6595,6 +7634,8 @@ export function MonitoringPage() {
                             ? "bg-cyan-500 text-white"
                             : isSecondary
                             ? "bg-amber-500 text-white"
+                            : isTertiary
+                            ? "bg-emerald-500 text-white"
                             : isSelected
                             ? "bg-[#db4040] text-white"
                             : "bg-slate-100 text-slate-600"
@@ -6610,6 +7651,8 @@ export function MonitoringPage() {
                                 ? "text-cyan-950"
                                 : isSecondary
                                 ? "text-amber-950"
+                                : isTertiary
+                                ? "text-emerald-950"
                                 : isSelected
                                 ? "text-red-950"
                                 : "text-slate-800"
@@ -6619,12 +7662,17 @@ export function MonitoringPage() {
                           </div>
                           {isPrimary && (
                             <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-cyan-100 text-cyan-700 shrink-0">
-                              Primary
+                              {isTriducer ? "Dial + Pill 1" : "Primary"}
                             </span>
                           )}
                           {isSecondary && (
                             <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 shrink-0">
-                              Secondary
+                              {isTriducer ? "Pill 2" : "Secondary"}
+                            </span>
+                          )}
+                          {isTertiary && (
+                            <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 shrink-0">
+                              Pill 3
                             </span>
                           )}
                         </div>
@@ -6644,6 +7692,8 @@ export function MonitoringPage() {
                             ? "border-cyan-500 bg-cyan-500 text-white"
                             : isSecondary
                             ? "border-amber-500 bg-amber-500 text-white"
+                            : isTertiary
+                            ? "border-emerald-500 bg-emerald-500 text-white"
                             : isSelected
                             ? "border-[#db4040] bg-[#db4040] text-white"
                             : "border-slate-300 bg-white"
@@ -6667,7 +7717,30 @@ export function MonitoringPage() {
           {/* Footer Modal: Selected & Action Buttons */}
           <div className="pt-3 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="text-xs text-slate-500 truncate">
-              {selectedWidget?.type === "heading" ? (
+              {selectedWidget?.type === "triducer" ? (
+                <span>
+                  Source: <strong className="text-slate-800">{vessels.find((v) => v.id === pickerVesselId)?.name}</strong>
+                  {" • "}
+                  1:{" "}
+                  <strong className="text-cyan-700">
+                    {availablePickerAttributes.find((a) => a.key === pickerAttrKey)?.label || VESSEL_ATTRIBUTES.find((a) => a.key === pickerAttrKey)?.label || pickerAttrKey || "None"}
+                  </strong>
+                  {" • "}
+                  2:{" "}
+                  <strong className="text-amber-700">
+                    {pickerSecondaryAttrKey && pickerSecondaryAttrKey !== "none"
+                      ? (availablePickerAttributes.find((a) => a.key === pickerSecondaryAttrKey)?.label || VESSEL_ATTRIBUTES.find((a) => a.key === pickerSecondaryAttrKey)?.label || pickerSecondaryAttrKey)
+                      : "None"}
+                  </strong>
+                  {" • "}
+                  3:{" "}
+                  <strong className="text-emerald-700">
+                    {pickerTertiaryAttrKey && pickerTertiaryAttrKey !== "none"
+                      ? (availablePickerAttributes.find((a) => a.key === pickerTertiaryAttrKey)?.label || VESSEL_ATTRIBUTES.find((a) => a.key === pickerTertiaryAttrKey)?.label || pickerTertiaryAttrKey)
+                      : "None"}
+                  </strong>
+                </span>
+              ) : selectedWidget?.type === "heading" || selectedWidget?.type === "attitude" ? (
                 <span>
                   Source: <strong className="text-slate-800">{vessels.find((v) => v.id === pickerVesselId)?.name}</strong>
                   {" • "}

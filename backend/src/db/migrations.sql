@@ -317,4 +317,34 @@ ON CONFLICT (id) DO UPDATE SET
     description = EXCLUDED.description,
     order_index = EXCLUDED.order_index;
 
+-- 16. Tabel Organisasi / Perusahaan Armada (Multi-Company Tenancy)
+CREATE TABLE IF NOT EXISTS core_companies (
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(150) NOT NULL,
+    code VARCHAR(50) UNIQUE,
+    description TEXT DEFAULT '',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Seed default fleet company
+INSERT INTO core_companies (id, name, code, description)
+VALUES 
+    ('comp_geotekno', 'PT Geo Tekno Indonesia', 'GEOTEKNO', 'Default fleet operator organization')
+ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name,
+    code = EXCLUDED.code;
+
+-- Relasi company_id ke core_users
+ALTER TABLE core_users ADD COLUMN IF NOT EXISTS company_id VARCHAR(64) REFERENCES core_companies(id) ON DELETE SET NULL;
+UPDATE core_users SET company_id = 'comp_geotekno' WHERE company_id IS NULL;
+
+-- Relasi company_id ke core_assets (kapal)
+ALTER TABLE core_assets ADD COLUMN IF NOT EXISTS company_id VARCHAR(64) REFERENCES core_companies(id) ON DELETE SET NULL;
+UPDATE core_assets SET company_id = 'comp_geotekno' WHERE company_id IS NULL;
+
+-- Relasi company_id ke core_agents (connectivity agents gateway)
+ALTER TABLE core_agents ADD COLUMN IF NOT EXISTS company_id VARCHAR(64) REFERENCES core_companies(id) ON DELETE SET NULL;
+UPDATE core_agents SET company_id = 'comp_geotekno' WHERE company_id IS NULL;
+
 

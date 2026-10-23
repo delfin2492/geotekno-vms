@@ -21,6 +21,8 @@ function generateAccessToken(user, permissions = {}, vessels = []) {
     email: user.email,
     name: user.name,
     isSuperadmin: !!user.is_superadmin,
+    companyId: user.company_id || user.companyId || 'comp_geotekno',
+    companyName: user.company_name || user.companyName || 'PT Geo Tekno Indonesia',
     vessels: user.is_superadmin ? ['*'] : vessels,
     permissions: user.is_superadmin
       ? { all: true }

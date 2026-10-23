@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import { authApi, type User, type Role } from "@/services/authApi"
 import { api } from "@/services/api"
-import type { Vessel } from "@/domain/types"
+import type { Vessel, Company } from "@/domain/types"
 import { useAuth } from "@/state/AuthProvider"
 import { ConfirmModal } from "@/components/common/UI"
 import {
@@ -21,11 +21,13 @@ import {
   Shield,
   Layers,
   Lock,
+  Building2,
+  Server,
 } from "lucide-react"
 
 const AVAILABLE_PAGES = [
   { key: "overview", label: "Fleet Overview", desc: "Fleet summary, maritime KPIs, & gateway health" },
-  { key: "marine_traffic", label: "Marine Traffic", desc: "AIS radar map & own-ship tracking" },
+  { key: "marine_traffic", label: "Marine Traffic", desc: "Live AIS map & own-ship tracking" },
   { key: "vessels", label: "Vessel Assets", desc: "Digital twin, decoder pipelines, & telemetry" },
   { key: "monitoring", label: "Monitoring Dashboard", desc: "Dynamic maritime telemetry & instruments" },
   { key: "logs", label: "Live Logs", desc: "Raw NMEA 2000 & NMEA 0183 log stream" },
@@ -46,10 +48,11 @@ const AVAILABLE_SECTIONS = [
 
 export function UserManagementPage() {
   const { user: currentUser } = useAuth()
-  const [activeTab, setActiveTab] = useState<"users" | "roles">("users")
+  const [activeTab, setActiveTab] = useState<"users" | "roles" | "companies">("users")
   const [users, setUsers] = useState<User[]>([])
   const [roles, setRoles] = useState<Role[]>([])
   const [vessels, setVessels] = useState<Vessel[]>([])
+  const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -76,12 +79,13 @@ export function UserManagementPage() {
   const [userModalMode, setUserModalMode] = useState<"create" | "edit">("create")
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
 
-  // User Form State (Simplified: Name, Email, Password, Role, Assigned Vessels)
+  // User Form State
   const [userFormData, setUserFormData] = useState({
     name: "",
     email: "",
     password: "",
     role_id: "role_fleet_operator",
+    company_id: "comp_geotekno",
     is_active: true,
     assigned_vessels: [] as string[],
   })
@@ -100,6 +104,16 @@ export function UserManagementPage() {
     sectionPermissions: {} as Record<string, { read: boolean; write: boolean }>,
   })
 
+  // Company Modals & State
+  const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false)
+  const [companyModalMode, setCompanyModalMode] = useState<"create" | "edit">("create")
+  const [selectedCompany, setSelectedCompany] = useState<Company | null>(null)
+  const [companyFormData, setCompanyFormData] = useState({
+    name: "",
+    code: "",
+    description: "",
+  })
+
   // Dynamic Monitoring Sections loaded from DB
   const [monitoringSections, setMonitoringSections] = useState<{ key: string; label: string; desc: string }[]>(AVAILABLE_SECTIONS)
 
@@ -107,15 +121,17 @@ export function UserManagementPage() {
     setLoading(true)
     setError(null)
     try {
-      const [usersRes, rolesRes, vesselsRes, sectionsRes] = await Promise.all([
+      const [usersRes, rolesRes, vesselsRes, sectionsRes, companiesRes] = await Promise.all([
         authApi.listUsers(),
         authApi.listRoles(),
         api.getVessels(),
         api.getMonitoringSections().catch(() => []),
+        authApi.listCompanies().catch(() => [] as Company[]),
       ])
       setUsers(usersRes.users)
       setRoles(rolesRes.roles)
       setVessels(vesselsRes)
+      setCompanies(Array.isArray(companiesRes) ? companiesRes : [])
 
       if (Array.isArray(sectionsRes) && sectionsRes.length > 0) {
         const dynamicList = sectionsRes.map((s) => ({
@@ -155,6 +171,7 @@ export function UserManagementPage() {
       email: "",
       password: "",
       role_id: roles.length > 0 ? roles[0].id : "role_fleet_operator",
+      company_id: currentUser?.company_id || "comp_geotekno",
       is_active: true,
       assigned_vessels: vessels.length > 0 ? [vessels[0].id] : [],
     })
@@ -169,7 +186,6 @@ export function UserManagementPage() {
       ? targetUser.vessels.map((v: any) => (typeof v === "string" ? v : v.vessel_id))
       : []
 
-    // Detect role_id
     let roleId = targetUser.role_id
     if (!roleId) {
       roleId = (targetUser.isSuperadmin || (targetUser as any).is_superadmin)
@@ -182,6 +198,7 @@ export function UserManagementPage() {
       email: targetUser.email,
       password: "",
       role_id: roleId,
+      company_id: targetUser.company_id || "comp_geotekno",
       is_active: targetUser.isActive ?? (targetUser as any).is_active ?? true,
       assigned_vessels: assignedVessels,
     })
@@ -198,6 +215,7 @@ export function UserManagementPage() {
           email: userFormData.email,
           password: userFormData.password,
           role_id: userFormData.role_id,
+          company_id: userFormData.company_id,
           is_active: userFormData.is_active,
           vessels: userFormData.assigned_vessels,
         })
@@ -209,6 +227,7 @@ export function UserManagementPage() {
           email: userFormData.email,
           password: userFormData.password || undefined,
           role_id: userFormData.role_id,
+          company_id: userFormData.company_id,
           is_active: userFormData.is_active,
           vessels: userFormData.assigned_vessels,
         })
@@ -219,6 +238,96 @@ export function UserManagementPage() {
     } catch (err: any) {
       setError(err.message || "Failed to save user.")
     }
+  }
+
+  // ==========================================
+  // COMPANY MODAL HANDLERS
+  // ==========================================
+
+  const openCreateCompanyModal = () => {
+    setCompanyModalMode("create")
+    setSelectedCompany(null)
+    setCompanyFormData({
+      name: "",
+      code: "",
+      description: "",
+    })
+    setIsCompanyModalOpen(true)
+  }
+
+  const openEditCompanyModal = (comp: Company) => {
+    setCompanyModalMode("edit")
+    setSelectedCompany(comp)
+    setCompanyFormData({
+      name: comp.name,
+      code: comp.code || "",
+      description: comp.description || "",
+    })
+    setIsCompanyModalOpen(true)
+  }
+
+  const handleCompanySubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    try {
+      if (companyModalMode === "create") {
+        await authApi.createCompany({
+          name: companyFormData.name,
+          code: companyFormData.code,
+          description: companyFormData.description,
+        })
+        setSuccess(`Company "${companyFormData.name}" registered successfully.`)
+      } else {
+        if (!selectedCompany) return
+        await authApi.updateCompany(selectedCompany.id, {
+          name: companyFormData.name,
+          code: companyFormData.code,
+          description: companyFormData.description,
+        })
+        setSuccess(`Company "${companyFormData.name}" updated successfully.`)
+      }
+      setIsCompanyModalOpen(false)
+      loadData()
+    } catch (err: any) {
+      setError(err.message || "Failed to save company.")
+    }
+  }
+
+  const handleDeleteCompany = (comp: Company) => {
+    if (comp.id === "comp_geotekno") {
+      setConfirmDialog({
+        open: true,
+        title: "System Default Organization",
+        message: "The default primary company 'PT Geo Tekno Indonesia' cannot be deleted.",
+        confirmLabel: "Understood",
+        isAlert: true,
+        variant: "warning",
+        onConfirm: () => { },
+      })
+      return
+    }
+
+    setConfirmDialog({
+      open: true,
+      title: "Delete Company",
+      message: (
+        <span>
+          Are you sure you want to delete company <strong>"{comp.name}"</strong>? Any vessels, agents, or users assigned to this company will become unassigned.
+        </span>
+      ),
+      confirmLabel: "Delete Company",
+      cancelLabel: "Cancel",
+      variant: "danger",
+      onConfirm: async () => {
+        try {
+          await authApi.deleteCompany(comp.id)
+          setSuccess(`Company "${comp.name}" deleted successfully.`)
+          loadData()
+        } catch (err: any) {
+          setError(err.message || "Failed to delete company.")
+        }
+      },
+    })
   }
 
   const handleDeleteUser = (userToDelete: User) => {
@@ -321,9 +430,10 @@ export function UserManagementPage() {
     ])
     knownKeys.forEach((key) => {
       const existing = role.permissions?.sections?.[key]
+      const wildcard = role.permissions?.sections?.["*"]
       secPerms[key] = {
-        read: existing?.read ?? (role.id === "role_superadmin"),
-        write: existing?.write ?? (role.id === "role_superadmin"),
+        read: existing?.read ?? wildcard?.read ?? (role.id === "role_superadmin"),
+        write: existing?.write ?? wildcard?.write ?? (role.id === "role_superadmin"),
       }
     })
 
@@ -460,13 +570,21 @@ export function UserManagementPage() {
                 <Plus className="h-4 w-4" />
                 <span>Add User</span>
               </button>
-            ) : (
+            ) : activeTab === "roles" ? (
               <button
                 onClick={openCreateRoleModal}
                 className="flex items-center gap-2 rounded-xl bg-[#db4040] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-700 cursor-pointer"
               >
                 <Plus className="h-4 w-4" />
                 <span>Create New Role</span>
+              </button>
+            ) : (
+              <button
+                onClick={openCreateCompanyModal}
+                className="flex items-center gap-2 rounded-xl bg-[#db4040] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-700 cursor-pointer"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Register Company</span>
               </button>
             )}
           </div>
@@ -494,6 +612,18 @@ export function UserManagementPage() {
             <ShieldCheck className="h-4 w-4" />
             <span>Roles & Permissions ({roles.length})</span>
           </button>
+          {Boolean(currentUser?.isSuperadmin ?? (currentUser as any)?.is_superadmin) && (
+            <button
+              onClick={() => setActiveTab("companies")}
+              className={`flex items-center gap-2 px-5 py-3 text-xs font-bold border-b-2 transition cursor-pointer ${activeTab === "companies"
+                  ? "border-[#db4040] text-[#db4040]"
+                  : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
+                }`}
+            >
+              <Building2 className="h-4 w-4" />
+              <span>Companies Directory ({companies.length})</span>
+            </button>
+          )}
         </div>
 
         {/* Alerts */}
@@ -537,6 +667,7 @@ export function UserManagementPage() {
                 <thead className="border-b border-slate-100 bg-slate-50/80 font-bold uppercase tracking-wider text-slate-500">
                   <tr>
                     <th className="px-6 py-3.5">Name & Email</th>
+                    <th className="px-6 py-3.5">Company</th>
                     <th className="px-6 py-3.5">Assigned Role</th>
                     <th className="px-6 py-3.5">Status</th>
                     <th className="px-6 py-3.5">Vessel Access</th>
@@ -546,14 +677,14 @@ export function UserManagementPage() {
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {loading ? (
                     <tr>
-                      <td colSpan={5} className="py-12 text-center text-slate-400">
+                      <td colSpan={6} className="py-12 text-center text-slate-400">
                         <Compass className="mx-auto h-6 w-6 animate-spin text-[#db4040]" />
                         <p className="mt-2 font-medium">Loading user accounts...</p>
                       </td>
                     </tr>
                   ) : users.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="py-12 text-center text-slate-400">
+                      <td colSpan={6} className="py-12 text-center text-slate-400">
                         No registered users found. Click "+ Add User" to register an operator.
                       </td>
                     </tr>
@@ -562,6 +693,7 @@ export function UserManagementPage() {
                       const isSelf = u.id === currentUser?.id
                       const isSuper = !!(u.isSuperadmin ?? (u as any).is_superadmin)
                       const displayRoleName = u.role_name || (isSuper ? "Superadmin" : "Fleet Operator")
+                      const compName = u.company_name || companies.find((c) => c.id === u.company_id)?.name || "Geo Tekno"
 
                       return (
                         <tr key={u.id} className="transition hover:bg-slate-50/60">
@@ -582,6 +714,12 @@ export function UserManagementPage() {
                                 <span className="text-[11px] text-slate-400">{u.email}</span>
                               </div>
                             </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700 border border-blue-200">
+                              <Building2 className="h-3 w-3" />
+                              {compName}
+                            </span>
                           </td>
                           <td className="px-6 py-4">
                             {isSuper ? (
@@ -785,6 +923,103 @@ export function UserManagementPage() {
           </div>
         )}
 
+        {/* ========================================== */}
+        {/* TAB 3: COMPANIES DIRECTORY                 */}
+        {/* ========================================== */}
+        {activeTab === "companies" && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {companies.map((comp) => {
+                const isDefault = comp.id === "comp_geotekno"
+                return (
+                  <div
+                    key={comp.id}
+                    className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-100 text-blue-700 font-bold">
+                            <Building2 className="h-4 w-4" />
+                          </span>
+                          <div>
+                            <h3 className="text-sm font-bold text-slate-900">{comp.name}</h3>
+                            <span className="text-[10px] text-slate-400 font-mono">CODE: {comp.code}</span>
+                          </div>
+                        </div>
+
+                        {isDefault ? (
+                          <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-700 border border-emerald-200">
+                            PRIMARY
+                          </span>
+                        ) : (
+                          <span className="rounded-md bg-blue-50 px-2 py-0.5 text-[9px] font-bold text-blue-600">
+                            TENANT
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="mt-3 text-xs text-slate-600 line-clamp-2 min-h-[32px]">
+                        {comp.description || "Multi-tenant maritime company organization."}
+                      </p>
+
+                      <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/80 p-3 space-y-2 text-xs">
+                        <div className="flex items-center justify-between text-slate-600">
+                          <span className="flex items-center gap-1.5 text-[11px]">
+                            <Ship className="h-3.5 w-3.5 text-slate-400" />
+                            Registered Vessels:
+                          </span>
+                          <span className="font-bold text-slate-900">
+                            {comp.vesselCount ?? 0}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-slate-600">
+                          <span className="flex items-center gap-1.5 text-[11px]">
+                            <Server className="h-3.5 w-3.5 text-slate-400" />
+                            Connectivity Agents:
+                          </span>
+                          <span className="font-bold text-slate-900">
+                            {comp.agentCount ?? 0}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-slate-600 pt-1 border-t border-slate-200/60">
+                          <span className="flex items-center gap-1.5 text-[11px]">
+                            <Users className="h-3.5 w-3.5 text-slate-400" />
+                            Active Users:
+                          </span>
+                          <span className="font-bold text-[#db4040]">
+                            {comp.userCount ?? 0}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
+                      <button
+                        onClick={() => openEditCompanyModal(comp)}
+                        className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                      >
+                        <Edit2 className="h-3.5 w-3.5" />
+                        <span>Edit Company</span>
+                      </button>
+
+                      {!isDefault && (
+                        <button
+                          onClick={() => handleDeleteCompany(comp)}
+                          className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 transition cursor-pointer"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span>Delete</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {/* ============================================================== */}
         {/* MODAL: ADD / EDIT USER (Simplified: Name, Email, Password, Role) */}
         {/* ============================================================== */}
@@ -866,6 +1101,27 @@ export function UserManagementPage() {
                   />
                 </div>
 
+                {/* Company Selection */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700">
+                    Company / Organization <span className="text-red-500">*</span>
+                  </label>
+                  <p className="text-[11px] text-slate-400 mb-1.5">
+                    User will be isolated to view vessels and connectivity agents of this organization.
+                  </p>
+                  <select
+                    value={userFormData.company_id}
+                    onChange={(e) => setUserFormData({ ...userFormData, company_id: e.target.value })}
+                    className="w-full rounded-xl border border-slate-200 bg-blue-50/20 px-3.5 py-2.5 text-xs text-slate-800 font-semibold outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                  >
+                    {companies.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 {/* 4. Role Selection (Inherit Permissions) */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700">
@@ -910,10 +1166,14 @@ export function UserManagementPage() {
                     </span>
                   </div>
                   <div className="grid grid-cols-1 gap-2 max-h-36 overflow-y-auto rounded-xl border border-slate-200 p-2.5 bg-slate-50/50">
-                    {vessels.length === 0 ? (
-                      <p className="text-[11px] text-slate-400 italic">No vessels available</p>
-                    ) : (
-                      vessels.map((v) => {
+                    {(() => {
+                      const compVessels = vessels.filter(
+                        (v) => !v.companyId || v.companyId === userFormData.company_id || (v as any).company_id === userFormData.company_id,
+                      )
+                      if (compVessels.length === 0) {
+                        return <p className="text-[11px] text-slate-400 italic">No vessels registered for this company.</p>
+                      }
+                      return compVessels.map((v) => {
                         const checked = userFormData.assigned_vessels.includes(v.id)
                         return (
                           <label
@@ -934,7 +1194,7 @@ export function UserManagementPage() {
                           </label>
                         )
                       })
-                    )}
+                    })()}
                   </div>
                 </div>
 
@@ -1261,6 +1521,100 @@ export function UserManagementPage() {
                   {roleModalMode === "create" ? "Create Role" : "Save Role Permissions"}
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================== */}
+        {/* MODAL: ADD / EDIT COMPANY                  */}
+        {/* ========================================== */}
+        {isCompanyModalOpen && (
+          <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-900/60 p-3 sm:p-6 backdrop-blur-sm">
+            <div className="relative flex flex-col w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4 bg-white">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                    <Building2 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      {companyModalMode === "create" ? "Register New Company" : `Edit Company: ${selectedCompany?.name}`}
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      Configure multi-tenant maritime organization
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsCompanyModalOpen(false)}
+                  className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleCompanySubmit} className="p-6 space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700">
+                    Company Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={companyFormData.name}
+                    onChange={(e) => setCompanyFormData({ ...companyFormData, name: e.target.value })}
+                    placeholder="e.g. PT Pelayaran Nasional Indonesia"
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700">
+                    Company Code / Acronym <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={companyFormData.code}
+                    onChange={(e) => setCompanyFormData({ ...companyFormData, code: e.target.value.toUpperCase() })}
+                    placeholder="e.g. PELNI or PERTAMINA"
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 uppercase font-mono outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                  />
+                  <p className="mt-1 text-[10px] text-slate-400">
+                    Short uppercase code used for asset tags & agent identifiers.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700">
+                    Description <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={companyFormData.description}
+                    onChange={(e) => setCompanyFormData({ ...companyFormData, description: e.target.value })}
+                    placeholder="Fleet operations description..."
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsCompanyModalOpen(false)}
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="rounded-xl bg-[#db4040] px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-red-700 transition cursor-pointer"
+                  >
+                    {companyModalMode === "create" ? "Create Company" : "Save Changes"}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}

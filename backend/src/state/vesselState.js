@@ -39,6 +39,8 @@ class VesselState {
     this.air_temp_c = null;
     this.baro_pressure_hpa = null;
     this.stw_knots = null;
+    this.log_nm = null;
+    this.trip_log_nm = null;
 
     this.engine_rpm = null;
     this.boost_kpa = null;
@@ -259,12 +261,15 @@ class VesselState {
       if (data.depth_ft !== undefined) this.depth_ft = data.depth_ft;
     } else if (pgn === 128259) {
       if (data.stw_knots !== undefined) this.stw_knots = data.stw_knots;
+    } else if (pgn === 128275) {
+      if (data.log_nm !== undefined) this.log_nm = data.log_nm;
+      if (data.trip_log_nm !== undefined) this.trip_log_nm = data.trip_log_nm;
     } else if (pgn === 130306) {
       if (data.wind_speed_kn !== undefined) this.wind_speed_kn = data.wind_speed_kn;
       if (data.wind_speed_ms !== undefined) this.wind_speed_ms = data.wind_speed_ms;
       if (data.wind_angle_deg !== undefined) this.wind_angle_deg = data.wind_angle_deg;
       if (data.wind_ref !== undefined) this.wind_ref = data.wind_ref;
-    } else if (pgn === 130310 || pgn === 130311) {
+    } else if (pgn === 130310 || pgn === 130311 || pgn === 130312 || pgn === 130316) {
       if (data.water_temp_c !== undefined) this.water_temp_c = data.water_temp_c;
       if (data.air_temp_c !== undefined) this.air_temp_c = data.air_temp_c;
       if (data.baro_pressure_hpa !== undefined) this.baro_pressure_hpa = data.baro_pressure_hpa;
@@ -330,6 +335,13 @@ class VesselState {
       }
     }
 
+    // Auto-decay FPS jika tidak ada frame telemetri baru selama > 15 detik
+    const now = Date.now();
+    if (this.lastDataReceivedAt && (now - this.lastDataReceivedAt > 15000)) {
+      this.frameRate = 0.0;
+      this._fpsCounter = 0;
+    }
+
     const timestampUtc = this.lastDataReceivedAt ? new Date(this.lastDataReceivedAt).toISOString() : null;
     const timestampLocal = this.lastDataReceivedAt ? new Date(this.lastDataReceivedAt).toLocaleString('sv-SE').replace('T', ' ') : null;
 
@@ -367,6 +379,8 @@ class VesselState {
         air_temp_c: this.air_temp_c,
         baro_pressure_hpa: this.baro_pressure_hpa,
         stw_knots: this.stw_knots,
+        log_nm: this.log_nm,
+        trip_log_nm: this.trip_log_nm,
       },
       engine: {
         engine_rpm: this.engine_rpm,

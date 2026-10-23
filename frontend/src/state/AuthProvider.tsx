@@ -6,6 +6,11 @@ interface AuthContextType {
   loading: boolean
   isAuthenticated: boolean
   isSuperadmin: boolean
+  companyId: string
+  companyName: string
+  companyCode: string
+  selectedCompanyFilter: string
+  setSelectedCompanyFilter: (id: string) => void
   login: (credentials: { email: string; password: string }) => Promise<void>
   register: (data: { name: string; email: string; password: string }) => Promise<{ success: boolean; message: string }>
   logout: () => Promise<void>
@@ -21,6 +26,7 @@ const AuthContext = createContext<AuthContextType | null>(null)
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(() => getStoredUser())
   const [loading, setLoading] = useState<boolean>(true)
+  const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>("all")
 
   const refreshProfile = useCallback(async () => {
     const token = getStoredToken()
@@ -128,6 +134,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         isAuthenticated: !!user,
         isSuperadmin,
+        companyId: user?.company_id || user?.companyId || "comp_geotekno",
+        companyName: user?.company_name || user?.companyName || "PT Geo Tekno Indonesia",
+        companyCode: user?.company_code || "GEOTEKNO",
+        selectedCompanyFilter,
+        setSelectedCompanyFilter,
         login,
         register,
         logout,

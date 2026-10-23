@@ -51,6 +51,7 @@ class TcpUsrAgentInstance {
     this.id = agentRow.id;
     this.name = agentRow.name;
     this.protocol = agentRow.protocol || 'TCP_CANET200';
+    this.company_id = agentRow.company_id || agentRow.companyId || null;
     this.config = typeof agentRow.config === 'string' ? JSON.parse(agentRow.config) : agentRow.config || {};
     this.port = parseInt(this.config.port || 20005, 10);
     this.host = this.config.host || '0.0.0.0';
@@ -462,6 +463,8 @@ class TcpUsrAgentInstance {
       id: this.id,
       name: this.name,
       protocol: this.protocol,
+      company_id: this.company_id,
+      companyId: this.company_id,
       config: this.config,
       port: this.port,
       status: this.status,
@@ -482,9 +485,9 @@ class AgentManager {
     try {
       // Pastikan Agent RS485 NMEA 0183 di port 20006 terdaftar
       await pool.query(`
-        INSERT INTO core_agents (id, name, protocol, config, status)
-        VALUES ('agent_f4a8b2c6', 'Agent RS485 NMEA 0183 (Port 20006)', 'TCP_NMEA0183', '{"host": "0.0.0.0", "port": 20006}', 'WAITING')
-        ON CONFLICT (id) DO UPDATE SET config = '{"host": "0.0.0.0", "port": 20006}', name = 'Agent RS485 NMEA 0183 (Port 20006)'
+        INSERT INTO core_agents (id, name, protocol, config, status, company_id)
+        VALUES ('agent_f4a8b2c6', 'Agent RS485 NMEA 0183 (Port 20006)', 'TCP_NMEA0183', '{"host": "0.0.0.0", "port": 20006}', 'WAITING', 'comp_geotekno')
+        ON CONFLICT (id) DO UPDATE SET config = '{"host": "0.0.0.0", "port": 20006}', name = 'Agent RS485 NMEA 0183 (Port 20006)', company_id = 'comp_geotekno'
       `);
 
       const res = await pool.query('SELECT * FROM core_agents ORDER BY created_at ASC');
@@ -499,12 +502,14 @@ class AgentManager {
         id: 'agent_7a3d9b1e',
         name: 'Agent TCP USR-CANET200 (Default)',
         protocol: 'TCP_CANET200',
+        company_id: 'comp_geotekno',
         config: { port: 20005, host: '0.0.0.0' },
       });
       this.registerAndStartAgent({
         id: 'agent_f4a8b2c6',
         name: 'Agent RS485 NMEA 0183 (Port 20006)',
         protocol: 'TCP_NMEA0183',
+        company_id: 'comp_geotekno',
         config: { port: 20006, host: '0.0.0.0' },
       });
     }
@@ -533,10 +538,11 @@ class AgentManager {
     return list;
   }
 
-  async createAgent({ id, name, protocol = 'TCP_CANET200', config = {} }) {
+  async createAgent({ id, name, protocol = 'TCP_CANET200', company_id, config = {} }) {
     const agentId = id || generateAgentId();
     const configObj = typeof config === 'string' ? JSON.parse(config) : config;
     const targetPort = configObj && configObj.port ? parseInt(configObj.port, 10) : null;
+    const compId = company_id !== undefined ? company_id : 'comp_geotekno';
 
     if (targetPort) {
       if ([8080, 5432, 3000, 80].includes(targetPort)) {
@@ -552,17 +558,17 @@ class AgentManager {
     const configJson = JSON.stringify(configObj);
 
     await pool.query(
-      `INSERT INTO core_agents (id, name, protocol, config, status)
-       VALUES ($1, $2, $3, $4, 'WAITING')
-       ON CONFLICT (id) DO UPDATE SET name = $2, config = $4`,
-      [agentId, name, protocol, configJson]
+      `INSERT INTO core_agents (id, name, protocol, config, company_id, status)
+       VALUES ($1, $2, $3, $4, $5, 'WAITING')
+       ON CONFLICT (id) DO UPDATE SET name = $2, config = $4, company_id = $5`,
+      [agentId, name, protocol, configJson, compId]
     );
 
-    const agentRow = { id: agentId, name, protocol, config: configObj };
+    const agentRow = { id: agentId, name, protocol, company_id: compId, config: configObj };
     return this.registerAndStartAgent(agentRow);
   }
 
-  async updateAgent(agentId, { name, protocol, config }) {
+  async updateAgent(agentId, { name, protocol, company_id, config }) {
     const existing = this.agents.get(agentId);
     if (!existing) {
       throw new Error(`Agent ${agentId} tidak ditemukan`);
@@ -570,6 +576,7 @@ class AgentManager {
 
     const newName = name !== undefined ? name : existing.name;
     const newProtocol = protocol !== undefined ? protocol : existing.protocol;
+    const newCompanyId = company_id !== undefined ? company_id : existing.company_id;
     const newConfig = config !== undefined ? (typeof config === 'string' ? JSON.parse(config) : config) : existing.config;
     const targetPort = newConfig && newConfig.port ? parseInt(newConfig.port, 10) : null;
 
@@ -588,15 +595,16 @@ class AgentManager {
 
     await pool.query(
       `UPDATE core_agents 
-       SET name = $1, protocol = $2, config = $3 
-       WHERE id = $4`,
-      [newName, newProtocol, configJson, agentId]
+       SET name = $1, protocol = $2, config = $3, company_id = $4 
+       WHERE id = $5`,
+      [newName, newProtocol, configJson, newCompanyId, agentId]
     );
 
     const agentRow = {
       id: agentId,
       name: newName,
       protocol: newProtocol,
+      company_id: newCompanyId,
       config: newConfig,
     };
     return this.registerAndStartAgent(agentRow);

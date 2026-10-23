@@ -254,6 +254,7 @@ async function getHistoricalTelemetryLogs(options = {}) {
   let limit = 100;
   let offset = 0;
   let assetId = null;
+  let assetIds = null;
   let from = null;
   let to = null;
 
@@ -265,15 +266,23 @@ async function getHistoricalTelemetryLogs(options = {}) {
     limit = options.limit ? Math.min(parseInt(options.limit, 10), 5000) : 100;
     offset = options.offset ? parseInt(options.offset, 10) : 0;
     assetId = options.assetId || null;
+    assetIds = options.assetIds || null;
     from = options.from || null;
     to = options.to || null;
+  }
+
+  if (typeof assetIds === 'string') {
+    assetIds = assetIds.split(',').map((s) => s.trim()).filter(Boolean);
   }
 
   try {
     const conditions = [];
     const params = [];
 
-    if (assetId && assetId !== 'all') {
+    if (Array.isArray(assetIds) && assetIds.length > 0) {
+      params.push(assetIds);
+      conditions.push(`g.asset_id = ANY($${params.length}::text[])`);
+    } else if (assetId && assetId !== 'all') {
       params.push(assetId);
       conditions.push(`g.asset_id = $${params.length}`);
     }

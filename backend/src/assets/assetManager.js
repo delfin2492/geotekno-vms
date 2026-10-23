@@ -144,20 +144,21 @@ class AssetManager {
     return list;
   }
 
-  async createAsset({ id, agent_id, name, type = 'VESSEL', metadata = {} }) {
+  async createAsset({ id, agent_id, name, type = 'VESSEL', company_id = 'comp_geotekno', metadata = {} }) {
     const assetId = id || generateVesselId();
+    const compId = company_id || 'comp_geotekno';
     await pool.query(
-      `INSERT INTO core_assets (id, agent_id, name, type, metadata)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (id) DO UPDATE SET name = $3, agent_id = $2, metadata = $5`,
-      [assetId, agent_id, name, type, JSON.stringify(metadata)]
+      `INSERT INTO core_assets (id, agent_id, name, type, company_id, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (id) DO UPDATE SET name = $3, agent_id = $2, company_id = $5, metadata = $6`,
+      [assetId, agent_id, name, type, compId, JSON.stringify(metadata)]
     );
 
-    const assetRow = { id: assetId, agent_id, name, type, metadata };
+    const assetRow = { id: assetId, agent_id, name, type, company_id: compId, metadata };
     return this.registerAsset(assetRow);
   }
 
-  async updateAsset(assetId, { name, agent_id, type, metadata }) {
+  async updateAsset(assetId, { name, agent_id, type, company_id, metadata }) {
     const existing = this.assets.get(assetId);
     if (!existing) {
       throw new Error(`Asset ${assetId} tidak ditemukan`);
@@ -166,13 +167,14 @@ class AssetManager {
     const newName = name !== undefined ? name : existing.info.name;
     const newAgentId = agent_id !== undefined ? agent_id : existing.info.agent_id;
     const newType = type !== undefined ? type : existing.info.type;
+    const newCompanyId = company_id !== undefined ? company_id : (existing.info.company_id || 'comp_geotekno');
     const newMetadata = metadata !== undefined ? metadata : existing.info.metadata;
 
     await pool.query(
       `UPDATE core_assets 
-       SET name = $1, agent_id = $2, type = $3, metadata = $4 
-       WHERE id = $5`,
-      [newName, newAgentId, newType, JSON.stringify(newMetadata), assetId]
+       SET name = $1, agent_id = $2, type = $3, company_id = $4, metadata = $5 
+       WHERE id = $6`,
+      [newName, newAgentId, newType, newCompanyId, JSON.stringify(newMetadata), assetId]
     );
 
     const assetRow = {
@@ -180,6 +182,7 @@ class AssetManager {
       name: newName,
       agent_id: newAgentId,
       type: newType,
+      company_id: newCompanyId,
       metadata: newMetadata,
     };
     return this.registerAsset(assetRow);
@@ -360,10 +363,13 @@ class AssetManager {
     const registeredKeys = new Set(registered.map((r) => `${r.namespace}.${r.keyName}`));
 
     const potentialSignals = [
+      { namespace: 'navigation', keyName: 'stw', displayName: 'Speed Through Water (STW)', unit: 'kn', pointingSource: 'PGN 128259 DST810', pgnSource: 'PGN 128259 DST810' },
+      { namespace: 'navigation', keyName: 'log_distance', displayName: 'Total Distance Log', unit: 'NM', pointingSource: 'PGN 128275 DST810', pgnSource: 'PGN 128275 DST810' },
+      { namespace: 'navigation', keyName: 'trip_distance', displayName: 'Trip Distance Log', unit: 'NM', pointingSource: 'PGN 128275 DST810', pgnSource: 'PGN 128275 DST810' },
       { namespace: 'navigation', keyName: 'altitude', displayName: 'Antenna Altitude', unit: 'm', pointingSource: 'PGN 129029 GNSS', pgnSource: 'PGN 129029 GNSS' },
       { namespace: 'navigation', keyName: 'hdop', displayName: 'Horizontal Dilution of Precision', unit: 'HDOP', pointingSource: 'PGN 129029 GNSS', pgnSource: 'PGN 129029 GNSS' },
-      { namespace: 'motion', keyName: 'pitch', displayName: 'Vessel Pitch Angle', unit: 'deg', pointingSource: 'PGN 127257 Attitude', pgnSource: 'PGN 127257 Attitude' },
-      { namespace: 'motion', keyName: 'roll', displayName: 'Vessel Roll Angle', unit: 'deg', pointingSource: 'PGN 127257 Attitude', pgnSource: 'PGN 127257 Attitude' },
+      { namespace: 'motion', keyName: 'pitch', displayName: 'Vessel Pitch / Trim Angle', unit: 'deg', pointingSource: 'PGN 127257 Attitude', pgnSource: 'PGN 127257 Attitude' },
+      { namespace: 'motion', keyName: 'roll', displayName: 'Vessel Roll / Heel Angle', unit: 'deg', pointingSource: 'PGN 127257 Attitude', pgnSource: 'PGN 127257 Attitude' },
       { namespace: 'environment', keyName: 'baro_pressure', displayName: 'Barometric Atmospheric Pressure', unit: 'hPa', pointingSource: 'PGN 130311 Pressure', pgnSource: 'PGN 130311 Pressure' },
       { namespace: 'environment', keyName: 'air_temp', displayName: 'Ambient Air Temperature', unit: '°C', pointingSource: 'PGN 130310 Temp', pgnSource: 'PGN 130310 Temp' },
       { namespace: 'engine', keyName: 'coolant_temp', displayName: 'Engine Coolant Temperature', unit: '°C', pointingSource: 'PGN 127489 Dynamic Engine', pgnSource: 'PGN 127489 Dynamic Engine' },
@@ -408,6 +414,9 @@ function resolveAttributeLiveValue(snap, namespace, keyName) {
       return null;
     }
     if (k === 'sog') return (snap.navigation && snap.navigation.sog_knots !== null && snap.navigation.sog_knots !== undefined) ? parseFloat(snap.navigation.sog_knots.toFixed(1)) : null;
+    if (k === 'stw' || k === 'speed_through_water') return (snap.environment && snap.environment.stw_knots !== null && snap.environment.stw_knots !== undefined) ? parseFloat(snap.environment.stw_knots.toFixed(1)) : null;
+    if (k === 'log_distance' || k === 'log_nm') return (snap.environment && snap.environment.log_nm !== null && snap.environment.log_nm !== undefined) ? parseFloat(snap.environment.log_nm.toFixed(2)) : null;
+    if (k === 'trip_distance' || k === 'trip_log_nm') return (snap.environment && snap.environment.trip_log_nm !== null && snap.environment.trip_log_nm !== undefined) ? parseFloat(snap.environment.trip_log_nm.toFixed(2)) : null;
     if (k === 'cog') return (snap.navigation && snap.navigation.cog_deg !== null && snap.navigation.cog_deg !== undefined) ? Math.round(snap.navigation.cog_deg) : null;
     if (k === 'altitude') return (snap.navigation && snap.navigation.altitude_m !== null && snap.navigation.altitude_m !== undefined) ? parseFloat(snap.navigation.altitude_m.toFixed(1)) : null;
     if (k === 'satellites') return (snap.navigation && snap.navigation.satellites !== null && snap.navigation.satellites !== undefined) ? snap.navigation.satellites : null;

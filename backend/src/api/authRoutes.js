@@ -98,6 +98,11 @@ function createAuthRouter() {
           id: user.id,
           name: user.name,
           email: user.email,
+          company_id: user.company_id || 'comp_geotekno',
+          company_name: user.company_name || 'PT Geo Tekno Indonesia',
+          company_code: user.company_code || 'GEOTEKNO',
+          companyId: user.company_id || 'comp_geotekno',
+          companyName: user.company_name || 'PT Geo Tekno Indonesia',
           isSuperadmin: !!user.is_superadmin,
           vessels,
           permissions,
@@ -153,6 +158,11 @@ function createAuthRouter() {
           id: user.id,
           name: user.name,
           email: user.email,
+          company_id: user.company_id || 'comp_geotekno',
+          company_name: user.company_name || 'PT Geo Tekno Indonesia',
+          company_code: user.company_code || 'GEOTEKNO',
+          companyId: user.company_id || 'comp_geotekno',
+          companyName: user.company_name || 'PT Geo Tekno Indonesia',
           isSuperadmin: !!user.is_superadmin,
           vessels,
           permissions,
@@ -193,6 +203,11 @@ function createAuthRouter() {
         id: user.id,
         name: user.name,
         email: user.email,
+        company_id: user.company_id || 'comp_geotekno',
+        company_name: user.company_name || 'PT Geo Tekno Indonesia',
+        company_code: user.company_code || 'GEOTEKNO',
+        companyId: user.company_id || 'comp_geotekno',
+        companyName: user.company_name || 'PT Geo Tekno Indonesia',
         isSuperadmin: !!user.is_superadmin,
         isActive: !!user.is_active,
         vessels,
@@ -299,7 +314,7 @@ function createAuthRouter() {
   // POST /users - Superadmin creates a new user account
   router.post('/users', authenticate, requireSuperadmin, async (req, res) => {
     try {
-      const { name, username, email, password, role_id, is_superadmin, is_active, permissions, vessels } = req.body;
+      const { name, username, email, password, role_id, company_id, companyId, is_superadmin, is_active, permissions, vessels } = req.body;
       if (!name || !email || !password) {
         return res.status(400).json({ error: 'Name, email, and password are required.' });
       }
@@ -322,6 +337,7 @@ function createAuthRouter() {
         email,
         password,
         role_id: role_id || 'role_fleet_operator',
+        company_id: company_id || companyId || 'comp_geotekno',
         is_superadmin: is_superadmin !== undefined ? !!is_superadmin : (role_id === 'role_superadmin'),
         is_active: is_active ?? true,
       });
@@ -344,7 +360,7 @@ function createAuthRouter() {
   router.put('/users/:id', authenticate, requireSuperadmin, async (req, res) => {
     try {
       const { id } = req.params;
-      const { name, username, email, role_id, is_active, is_superadmin, password, permissions, vessels } = req.body;
+      const { name, username, email, role_id, company_id, companyId, is_active, is_superadmin, password, permissions, vessels } = req.body;
 
       // Validate email uniqueness if changing email
       if (email) {
@@ -358,7 +374,16 @@ function createAuthRouter() {
         }
       }
 
-      const updated = await updateUser(id, { name, username, email, role_id, is_active, is_superadmin, password });
+      const updated = await updateUser(id, {
+        name,
+        username,
+        email,
+        role_id,
+        company_id: company_id !== undefined ? company_id : companyId,
+        is_active,
+        is_superadmin,
+        password,
+      });
       if (!updated) {
         return res.status(404).json({ error: 'User not found.' });
       }

@@ -136,6 +136,25 @@ function decodeNmea2000Payload(pgn, payload) {
       }
 
       // ----------------------------------------------------
+      // PGN 128275: Distance Log (Fast Packet - Airmar DST810)
+      // ----------------------------------------------------
+      case 128275: {
+        if (payload.length < 14) return null;
+        const totalLogRaw = payload.readUInt32LE(6);
+        const tripLogRaw = payload.readUInt32LE(10);
+
+        const logM = totalLogRaw !== 0xffffffff ? totalLogRaw : null;
+        const tripLogM = tripLogRaw !== 0xffffffff ? tripLogRaw : null;
+
+        return {
+          log_m: logM,
+          log_nm: logM !== null ? parseFloat((logM / 1852.0).toFixed(2)) : null,
+          trip_log_m: tripLogM,
+          trip_log_nm: tripLogM !== null ? parseFloat((tripLogM / 1852.0).toFixed(2)) : null,
+        };
+      }
+
+      // ----------------------------------------------------
       // PGN 129025: Position, Rapid Update
       // ----------------------------------------------------
       case 129025: {
@@ -274,6 +293,63 @@ function decodeNmea2000Payload(pgn, payload) {
           water_temp_c: waterTemp !== null ? parseFloat(waterTemp.toFixed(1)) : null,
           air_temp_c: airTemp !== null ? parseFloat(airTemp.toFixed(1)) : null,
           baro_pressure_hpa: pressure !== null ? parseFloat(pressure.toFixed(1)) : null,
+        };
+      }
+
+      // ----------------------------------------------------
+      // PGN 130311: Environmental Parameters (DST810)
+      // ----------------------------------------------------
+      case 130311: {
+        if (payload.length < 4) return null;
+        const sid = payload[0];
+        const tempSource = payload[1] & 0x3f;
+        const tempRaw = payload.readUInt16LE(2);
+        const pressureRaw = payload.length >= 8 ? payload.readUInt16LE(6) : 0xffff;
+
+        const tempC = tempRaw !== 0xffff ? tempRaw * 0.01 - KELVIN_OFFSET : null;
+        const pressure = pressureRaw !== 0xffff ? pressureRaw * 100 * 0.01 : null;
+
+        return {
+          sid,
+          water_temp_c: tempSource === 0 && tempC !== null ? parseFloat(tempC.toFixed(1)) : undefined,
+          air_temp_c: tempSource === 1 && tempC !== null ? parseFloat(tempC.toFixed(1)) : undefined,
+          baro_pressure_hpa: pressure !== null ? parseFloat(pressure.toFixed(1)) : undefined,
+        };
+      }
+
+      // ----------------------------------------------------
+      // PGN 130312: Temperature (DST810)
+      // ----------------------------------------------------
+      case 130312: {
+        if (payload.length < 5) return null;
+        const sid = payload[0];
+        const tempSource = payload[2];
+        const actualTempRaw = payload.readUInt16LE(3);
+        const tempC = actualTempRaw !== 0xffff ? actualTempRaw * 0.01 - KELVIN_OFFSET : null;
+        if (tempC === null) return null;
+
+        return {
+          sid,
+          water_temp_c: tempSource === 0 ? parseFloat(tempC.toFixed(1)) : undefined,
+          air_temp_c: tempSource === 1 ? parseFloat(tempC.toFixed(1)) : undefined,
+        };
+      }
+
+      // ----------------------------------------------------
+      // PGN 130316: Temperature, Extended Range (DST810)
+      // ----------------------------------------------------
+      case 130316: {
+        if (payload.length < 6) return null;
+        const sid = payload[0];
+        const tempSource = payload[2];
+        const tempRaw24 = payload[3] | (payload[4] << 8) | (payload[5] << 16);
+        const tempC = tempRaw24 !== 0xffffff ? tempRaw24 * 0.001 - KELVIN_OFFSET : null;
+        if (tempC === null) return null;
+
+        return {
+          sid,
+          water_temp_c: tempSource === 0 ? parseFloat(tempC.toFixed(1)) : undefined,
+          air_temp_c: tempSource === 1 ? parseFloat(tempC.toFixed(1)) : undefined,
         };
       }
 
