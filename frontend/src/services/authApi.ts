@@ -238,6 +238,8 @@ export const authApi = {
     name: string
     code?: string
     description?: string
+    max_vessels?: number
+    max_agents?: number
     admin_name?: string
     admin_email?: string
     admin_password?: string
@@ -259,6 +261,8 @@ export const authApi = {
       name?: string
       code?: string
       description?: string
+      max_vessels?: number
+      max_agents?: number
       admin_name?: string
       admin_email?: string
       admin_password?: string

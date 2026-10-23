@@ -116,6 +116,8 @@ export function UserManagementPage() {
     name: "",
     code: "",
     description: "",
+    max_vessels: 10,
+    max_agents: 2,
     admin_name: "",
     admin_email: "",
     admin_password: "",
@@ -258,6 +260,8 @@ export function UserManagementPage() {
       name: "",
       code: "",
       description: "",
+      max_vessels: 10,
+      max_agents: 2,
       admin_name: "",
       admin_email: "",
       admin_password: "",
@@ -272,6 +276,8 @@ export function UserManagementPage() {
       name: comp.name,
       code: comp.code || "",
       description: comp.description || "",
+      max_vessels: comp.max_vessels ?? comp.maxVessels ?? 10,
+      max_agents: comp.max_agents ?? comp.maxAgents ?? 2,
       admin_name: comp.adminUser?.name || "",
       admin_email: comp.adminUser?.email || "",
       admin_password: "",
@@ -288,6 +294,8 @@ export function UserManagementPage() {
           name: companyFormData.name,
           code: companyFormData.code,
           description: companyFormData.description,
+          max_vessels: Number(companyFormData.max_vessels),
+          max_agents: Number(companyFormData.max_agents),
           admin_name: companyFormData.admin_name,
           admin_email: companyFormData.admin_email,
           admin_password: companyFormData.admin_password,
@@ -300,6 +308,8 @@ export function UserManagementPage() {
           name: companyFormData.name,
           code: companyFormData.code,
           description: companyFormData.description,
+          max_vessels: Number(companyFormData.max_vessels),
+          max_agents: Number(companyFormData.max_agents),
           admin_name: companyFormData.admin_name || undefined,
           admin_email: companyFormData.admin_email || undefined,
           admin_password: companyFormData.admin_password || undefined,
@@ -1006,19 +1016,19 @@ export function UserManagementPage() {
                         <div className="flex items-center justify-between text-slate-600">
                           <span className="flex items-center gap-1.5 text-[11px]">
                             <Ship className="h-3.5 w-3.5 text-slate-400" />
-                            Registered Vessels:
+                            Fleet Vessels Quota:
                           </span>
                           <span className="font-bold text-slate-900">
-                            {comp.vesselCount ?? 0}
+                            {comp.vesselCount ?? 0} <span className="text-slate-400 font-normal">/ {comp.max_vessels || comp.maxVessels || 10}</span>
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-slate-600">
                           <span className="flex items-center gap-1.5 text-[11px]">
                             <Server className="h-3.5 w-3.5 text-slate-400" />
-                            Connectivity Agents:
+                            Gateway Agents Quota:
                           </span>
                           <span className="font-bold text-slate-900">
-                            {comp.agentCount ?? 0}
+                            {comp.agentCount ?? 0} <span className="text-slate-400 font-normal">/ {comp.max_agents || comp.maxAgents || 2}</span>
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-slate-600 pt-1 border-t border-slate-200/60">
@@ -1656,6 +1666,55 @@ export function UserManagementPage() {
                     placeholder="Fleet operations description..."
                     className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
                   />
+                </div>
+
+                {/* Quota Settings */}
+                <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700">
+                      Fleet Vessels Quota <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min={1}
+                      max={999}
+                      value={companyFormData.max_vessels}
+                      onChange={(e) =>
+                        setCompanyFormData({
+                          ...companyFormData,
+                          max_vessels: parseInt(e.target.value, 10) || 1,
+                        })
+                      }
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                    />
+                    <p className="mt-1 text-[10px] text-slate-400">
+                      Max vessels this company can register
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700">
+                      Gateway Agents Quota <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min={1}
+                      max={50}
+                      value={companyFormData.max_agents}
+                      onChange={(e) =>
+                        setCompanyFormData({
+                          ...companyFormData,
+                          max_agents: parseInt(e.target.value, 10) || 1,
+                        })
+                      }
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                    />
+                    <p className="mt-1 text-[10px] text-slate-400">
+                      Max TCP listener agents allowed
+                    </p>
+                  </div>
                 </div>
 
                 <div className="pt-3 border-t border-slate-100 space-y-3">

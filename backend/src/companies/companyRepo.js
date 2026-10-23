@@ -9,6 +9,8 @@ async function listCompanies() {
       c.name, 
       c.code, 
       c.description, 
+      c.max_vessels,
+      c.max_agents,
       c.created_at, 
       c.updated_at,
       (SELECT COUNT(*) FROM core_assets a WHERE a.company_id = c.id) as vessel_count,
@@ -29,6 +31,10 @@ async function listCompanies() {
     code: row.code,
     description: row.description,
     adminUser: row.admin_user || null,
+    maxVessels: row.max_vessels !== null ? parseInt(row.max_vessels, 10) : 10,
+    maxAgents: row.max_agents !== null ? parseInt(row.max_agents, 10) : 2,
+    max_vessels: row.max_vessels !== null ? parseInt(row.max_vessels, 10) : 10,
+    max_agents: row.max_agents !== null ? parseInt(row.max_agents, 10) : 2,
     vesselCount: parseInt(row.vessel_count, 10),
     userCount: parseInt(row.user_count, 10),
     agentCount: parseInt(row.agent_count, 10),
@@ -44,6 +50,8 @@ async function getCompanyById(id) {
       c.name, 
       c.code, 
       c.description, 
+      c.max_vessels,
+      c.max_agents,
       c.created_at, 
       c.updated_at,
       (SELECT COUNT(*) FROM core_assets a WHERE a.company_id = c.id) as vessel_count,
@@ -66,6 +74,10 @@ async function getCompanyById(id) {
     code: row.code,
     description: row.description,
     adminUser: row.admin_user || null,
+    maxVessels: row.max_vessels !== null ? parseInt(row.max_vessels, 10) : 10,
+    maxAgents: row.max_agents !== null ? parseInt(row.max_agents, 10) : 2,
+    max_vessels: row.max_vessels !== null ? parseInt(row.max_vessels, 10) : 10,
+    max_agents: row.max_agents !== null ? parseInt(row.max_agents, 10) : 2,
     vesselCount: parseInt(row.vessel_count, 10),
     userCount: parseInt(row.user_count, 10),
     agentCount: parseInt(row.agent_count, 10),
@@ -74,7 +86,21 @@ async function getCompanyById(id) {
   };
 }
 
-async function createCompany({ name, code, description, admin_name, admin_email, admin_password, adminName, adminEmail, adminPassword }) {
+async function createCompany({
+  name,
+  code,
+  description,
+  max_vessels,
+  max_agents,
+  maxVessels,
+  maxAgents,
+  admin_name,
+  admin_email,
+  admin_password,
+  adminName,
+  adminEmail,
+  adminPassword,
+}) {
   if (!name || !name.trim()) {
     throw new Error('Nama perusahaan wajib diisi.');
   }
@@ -83,12 +109,14 @@ async function createCompany({ name, code, description, admin_name, admin_email,
   const slug = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 20);
   const id = `comp_${slug}_${crypto.randomBytes(3).toString('hex')}`;
   const cleanCode = (code || slug).trim().toUpperCase();
+  const maxV = max_vessels !== undefined ? parseInt(max_vessels, 10) : (maxVessels !== undefined ? parseInt(maxVessels, 10) : 10);
+  const maxA = max_agents !== undefined ? parseInt(max_agents, 10) : (maxAgents !== undefined ? parseInt(maxAgents, 10) : 2);
 
   const res = await pool.query(
-    `INSERT INTO core_companies (id, name, code, description)
-     VALUES ($1, $2, $3, $4)
-     RETURNING id, name, code, description, created_at, updated_at`,
-    [id, cleanName, cleanCode, (description || '').trim()]
+    `INSERT INTO core_companies (id, name, code, description, max_vessels, max_agents)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, name, code, description, max_vessels, max_agents, created_at, updated_at`,
+    [id, cleanName, cleanCode, (description || '').trim(), maxV, maxA]
   );
   const comp = res.rows[0];
 
@@ -112,13 +140,15 @@ async function createCompany({ name, code, description, admin_name, admin_email,
   return {
     ...comp,
     adminUser,
+    maxVessels: maxV,
+    maxAgents: maxA,
     vesselCount: 0,
     userCount: adminUser ? 1 : 0,
     agentCount: 0,
   };
 }
 
-async function updateCompany(id, { name, code, description, admin_name, admin_email, admin_password }) {
+async function updateCompany(id, { name, code, description, max_vessels, max_agents, maxVessels, maxAgents, admin_name, admin_email, admin_password }) {
   const fields = [];
   const values = [];
   let idx = 1;
@@ -134,6 +164,14 @@ async function updateCompany(id, { name, code, description, admin_name, admin_em
   if (description !== undefined) {
     fields.push(`description = $${idx++}`);
     values.push(description.trim());
+  }
+  if (max_vessels !== undefined || maxVessels !== undefined) {
+    fields.push(`max_vessels = $${idx++}`);
+    values.push(parseInt(max_vessels ?? maxVessels, 10));
+  }
+  if (max_agents !== undefined || maxAgents !== undefined) {
+    fields.push(`max_agents = $${idx++}`);
+    values.push(parseInt(max_agents ?? maxAgents, 10));
   }
 
   if (fields.length > 0) {

@@ -376,5 +376,11 @@ VALUES
     ('role_company_admin', 'SECTION', '*', TRUE, TRUE)
 ON CONFLICT (role_id, resource_key) DO NOTHING;
 
+-- 18. Kuota Kapal & Connectivity Agent Per-Company
+ALTER TABLE core_companies ADD COLUMN IF NOT EXISTS max_vessels INT DEFAULT 10;
+ALTER TABLE core_companies ADD COLUMN IF NOT EXISTS max_agents INT DEFAULT 2;
+UPDATE core_companies SET max_vessels = 50, max_agents = 10 WHERE id = 'comp_geotekno';
+
+
 
 

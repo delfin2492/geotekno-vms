@@ -315,7 +315,6 @@ export function VesselAssetsPage() {
       )
     )
       nextErrors.agentName = "Agent name must be unique."
-    if (!agentDraft.host.trim()) nextErrors.host = "Host address is required."
     if (
       !Number.isInteger(Number(agentDraft.port)) ||
       agentDraft.port < 1 ||
@@ -326,8 +325,12 @@ export function VesselAssetsPage() {
       nextErrors.decoders = "Enable at least one payload decoder."
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length) return
-    if (editingAgentId) updateAgent(editingAgentId, agentDraft)
-    else addAgent(agentDraft)
+    const payload: AgentDraft = {
+      ...agentDraft,
+      host: "0.0.0.0",
+    }
+    if (editingAgentId) updateAgent(editingAgentId, payload)
+    else addAgent(payload)
     setAgentModal(false)
   }
 
@@ -1800,24 +1803,23 @@ export function VesselAssetsPage() {
                   </span>
                 )}
               </label>
-              <label>
+              <div>
                 <span className="mb-1.5 block text-[10px] font-bold text-slate-600">
-                  Host address
+                  Gateway Listener Host
                 </span>
-                <input
-                  value={agentDraft.host}
-                  onChange={(event) =>
-                    setAgentDraft({ ...agentDraft, host: event.target.value })
-                  }
-                  className={inputClass}
-                  placeholder="192.168.40.84"
-                />
-                {errors.host && (
-                  <span className="mt-1 block text-[9px] text-red-600">
-                    {errors.host}
+                <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-100/90 px-3.5 py-2.5 text-xs text-slate-700 font-mono">
+                  <div className="flex items-center gap-2">
+                    <Server className="h-3.5 w-3.5 text-slate-400" />
+                    <span>0.0.0.0 (Local Server Binding)</span>
+                  </div>
+                  <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">
+                    PERMANENT
                   </span>
-                )}
-              </label>
+                </div>
+                <p className="mt-1 text-[10px] text-slate-400">
+                  Backend otomatis mendengarkan koneksi data TCP kapal pada port yang ditentukan.
+                </p>
+              </div>
               <label>
                 <span className="mb-1.5 block text-[10px] font-bold text-slate-600">
                   Port

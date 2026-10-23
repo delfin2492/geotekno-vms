@@ -13,6 +13,10 @@ export interface Company {
   code: string
   description?: string
   adminUser?: { id: string; name: string; email: string } | null
+  maxVessels?: number
+  maxAgents?: number
+  max_vessels?: number
+  max_agents?: number
   vesselCount?: number
   userCount?: number
   agentCount?: number

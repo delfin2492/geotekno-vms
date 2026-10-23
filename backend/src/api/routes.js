@@ -60,7 +60,21 @@ function createApiRouter() {
       const targetCompany = (req.user && !req.user.isSuperadmin)
         ? (req.user.companyId || req.user.company_id || 'comp_geotekno')
         : (company_id || companyId || 'comp_geotekno');
-      const created = await agentManager.createAgent({ id, name, protocol, company_id: targetCompany, config });
+
+      // Check agent quota for targetCompany
+      const compInfo = await companyRepo.getCompanyById(targetCompany);
+      if (compInfo && compInfo.maxAgents > 0) {
+        if (compInfo.agentCount >= compInfo.maxAgents && (!req.user || !req.user.isSuperadmin)) {
+          return res.status(403).json({
+            error: `Batas kuota Connectivity Gateway untuk perusahaan '${compInfo.name}' telah tercapai (Maksimal ${compInfo.maxAgents} agent). Hubungi Superadmin untuk menambah kuota.`,
+            code: 'AGENT_QUOTA_EXCEEDED'
+          });
+        }
+      }
+
+      // Host is permanently locked to 0.0.0.0 (internal server listener)
+      const safeConfig = config ? { ...config, host: '0.0.0.0' } : { host: '0.0.0.0' };
+      const created = await agentManager.createAgent({ id, name, protocol, company_id: targetCompany, config: safeConfig });
       res.json({ success: true, agent: created.getStatus() });
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -73,7 +87,8 @@ function createApiRouter() {
       const newComp = (req.user && req.user.isSuperadmin)
         ? (company_id !== undefined ? company_id : companyId)
         : undefined;
-      const updated = await agentManager.updateAgent(req.params.id, { name, protocol, company_id: newComp, config });
+      const safeConfig = config ? { ...config, host: '0.0.0.0' } : undefined;
+      const updated = await agentManager.updateAgent(req.params.id, { name, protocol, company_id: newComp, config: safeConfig });
       res.json({ success: true, agent: updated.getStatus() });
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -117,6 +132,18 @@ function createApiRouter() {
       const targetCompany = (req.user && !req.user.isSuperadmin)
         ? (req.user.companyId || req.user.company_id || 'comp_geotekno')
         : (company_id || companyId || 'comp_geotekno');
+
+      // Check vessel quota for targetCompany
+      const compInfo = await companyRepo.getCompanyById(targetCompany);
+      if (compInfo && compInfo.maxVessels > 0) {
+        if (compInfo.vesselCount >= compInfo.maxVessels && (!req.user || !req.user.isSuperadmin)) {
+          return res.status(403).json({
+            error: `Batas kuota armada untuk perusahaan '${compInfo.name}' telah tercapai (Maksimal ${compInfo.maxVessels} kapal). Hubungi Superadmin untuk upgrade kuota.`,
+            code: 'VESSEL_QUOTA_EXCEEDED'
+          });
+        }
+      }
+
       const created = await assetManager.createAsset({ id, agent_id, name, type, company_id: targetCompany, metadata });
       res.json({ success: true, asset: created.info });
     } catch (err) {
@@ -1161,11 +1188,29 @@ function createApiRouter() {
 
   router.post('/v1/companies', requireSuperadmin, async (req, res) => {
     try {
-      const { name, code, description, admin_name, admin_email, admin_password, adminName, adminEmail, adminPassword } = req.body;
+      const {
+        name,
+        code,
+        description,
+        max_vessels,
+        max_agents,
+        maxVessels,
+        maxAgents,
+        admin_name,
+        admin_email,
+        admin_password,
+        adminName,
+        adminEmail,
+        adminPassword,
+      } = req.body;
       const created = await companyRepo.createCompany({
         name,
         code,
         description,
+        max_vessels,
+        max_agents,
+        maxVessels,
+        maxAgents,
         admin_name,
         admin_email,
         admin_password,
@@ -1181,11 +1226,29 @@ function createApiRouter() {
 
   router.put('/v1/companies/:id', requireSuperadmin, async (req, res) => {
     try {
-      const { name, code, description, admin_name, admin_email, admin_password, adminName, adminEmail, adminPassword } = req.body;
+      const {
+        name,
+        code,
+        description,
+        max_vessels,
+        max_agents,
+        maxVessels,
+        maxAgents,
+        admin_name,
+        admin_email,
+        admin_password,
+        adminName,
+        adminEmail,
+        adminPassword,
+      } = req.body;
       const updated = await companyRepo.updateCompany(req.params.id, {
         name,
         code,
         description,
+        max_vessels,
+        max_agents,
+        maxVessels,
+        maxAgents,
         admin_name: admin_name || adminName,
         admin_email: admin_email || adminEmail,
         admin_password: admin_password || adminPassword,
