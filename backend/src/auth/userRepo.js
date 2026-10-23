@@ -120,9 +120,6 @@ async function updateUser(id, { name, username, email, role_id, company_id, is_a
     fields.push(`password_hash = $${idx++}`);
     values.push(hashPassword(password));
   }
-    fields.push(`password_hash = $${idx++}`);
-    values.push(hashPassword(password));
-  }
   fields.push(`updated_at = NOW()`);
 
   values.push(id);
