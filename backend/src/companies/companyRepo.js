@@ -13,7 +13,12 @@ async function listCompanies() {
       c.updated_at,
       (SELECT COUNT(*) FROM core_assets a WHERE a.company_id = c.id) as vessel_count,
       (SELECT COUNT(*) FROM core_users u WHERE u.company_id = c.id) as user_count,
-      (SELECT COUNT(*) FROM core_agents ag WHERE ag.company_id = c.id) as agent_count
+      (SELECT COUNT(*) FROM core_agents ag WHERE ag.company_id = c.id) as agent_count,
+      (SELECT json_build_object('id', u.id, 'name', u.name, 'email', u.email) 
+       FROM core_users u 
+       WHERE u.company_id = c.id AND (u.is_company_admin = true OR u.role_id = 'role_company_admin')
+       ORDER BY u.created_at ASC
+       LIMIT 1) as admin_user
     FROM core_companies c
     ORDER BY c.created_at ASC
   `;
@@ -23,6 +28,7 @@ async function listCompanies() {
     name: row.name,
     code: row.code,
     description: row.description,
+    adminUser: row.admin_user || null,
     vesselCount: parseInt(row.vessel_count, 10),
     userCount: parseInt(row.user_count, 10),
     agentCount: parseInt(row.agent_count, 10),
@@ -42,7 +48,12 @@ async function getCompanyById(id) {
       c.updated_at,
       (SELECT COUNT(*) FROM core_assets a WHERE a.company_id = c.id) as vessel_count,
       (SELECT COUNT(*) FROM core_users u WHERE u.company_id = c.id) as user_count,
-      (SELECT COUNT(*) FROM core_agents ag WHERE ag.company_id = c.id) as agent_count
+      (SELECT COUNT(*) FROM core_agents ag WHERE ag.company_id = c.id) as agent_count,
+      (SELECT json_build_object('id', u.id, 'name', u.name, 'email', u.email) 
+       FROM core_users u 
+       WHERE u.company_id = c.id AND (u.is_company_admin = true OR u.role_id = 'role_company_admin')
+       ORDER BY u.created_at ASC
+       LIMIT 1) as admin_user
     FROM core_companies c
     WHERE c.id = $1
   `;
@@ -54,6 +65,7 @@ async function getCompanyById(id) {
     name: row.name,
     code: row.code,
     description: row.description,
+    adminUser: row.admin_user || null,
     vesselCount: parseInt(row.vessel_count, 10),
     userCount: parseInt(row.user_count, 10),
     agentCount: parseInt(row.agent_count, 10),
@@ -106,7 +118,7 @@ async function createCompany({ name, code, description, admin_name, admin_email,
   };
 }
 
-async function updateCompany(id, { name, code, description }) {
+async function updateCompany(id, { name, code, description, admin_name, admin_email, admin_password }) {
   const fields = [];
   const values = [];
   let idx = 1;
@@ -124,24 +136,49 @@ async function updateCompany(id, { name, code, description }) {
     values.push(description.trim());
   }
 
-  if (fields.length === 0) {
-    return getCompanyById(id);
+  if (fields.length > 0) {
+    fields.push(`updated_at = NOW()`);
+    values.push(id);
+
+    await pool.query(
+      `UPDATE core_companies 
+       SET ${fields.join(', ')} 
+       WHERE id = $${idx}`,
+      values
+    );
   }
 
-  fields.push(`updated_at = NOW()`);
-  values.push(id);
+  // Handle Company Admin account update or creation if admin fields are provided
+  if (admin_name || admin_email || admin_password) {
+    const adminRes = await pool.query(
+      `SELECT id FROM core_users 
+       WHERE company_id = $1 AND (is_company_admin = true OR role_id = 'role_company_admin')
+       ORDER BY created_at ASC LIMIT 1`,
+      [id]
+    );
 
-  const res = await pool.query(
-    `UPDATE core_companies 
-     SET ${fields.join(', ')} 
-     WHERE id = $${idx}
-     RETURNING id, name, code, description, created_at, updated_at`,
-    values
-  );
-
-  if (!res.rows[0]) {
-    throw new Error(`Perusahaan '${id}' tidak ditemukan`);
+    if (adminRes.rows.length > 0) {
+      const adminId = adminRes.rows[0].id;
+      const { updateUser } = require('../auth/userRepo');
+      await updateUser(adminId, {
+        name: admin_name || undefined,
+        email: admin_email || undefined,
+        password: admin_password || undefined,
+      });
+    } else if (admin_name && admin_email && admin_password) {
+      // If company previously had no admin, create one
+      await createUser({
+        name: admin_name.trim(),
+        email: admin_email.trim().toLowerCase(),
+        password: admin_password,
+        role_id: 'role_company_admin',
+        company_id: id,
+        is_company_admin: true,
+        is_superadmin: false,
+      });
+    }
   }
+
   return getCompanyById(id);
 }
 
@@ -150,18 +187,19 @@ async function deleteCompany(id) {
     throw new Error('Perusahaan bawaan utama (comp_geotekno) tidak dapat dihapus.');
   }
 
-  // Check if company has vessels or users
-  const countRes = await pool.query(
-    `SELECT 
-      (SELECT COUNT(*) FROM core_assets WHERE company_id = $1) as v_cnt,
-      (SELECT COUNT(*) FROM core_users WHERE company_id = $1) as u_cnt`,
-    [id]
-  );
-  const { v_cnt, u_cnt } = countRes.rows[0];
-  if (parseInt(v_cnt, 10) > 0 || parseInt(u_cnt, 10) > 0) {
-    throw new Error(`Tidak dapat menghapus: Masih terdapat ${v_cnt} kapal dan ${u_cnt} pengguna terdaftar di perusahaan ini.`);
-  }
+  // 1. Unbind any vessels belonging to this company (avoid breaking telemetry)
+  await pool.query('UPDATE core_assets SET company_id = NULL WHERE company_id = $1', [id]);
 
+  // 2. Unbind any connectivity agents belonging to this company
+  await pool.query('UPDATE core_agents SET company_id = NULL WHERE company_id = $1', [id]);
+
+  // 3. Delete tenant-specific users of this company
+  await pool.query('DELETE FROM core_users WHERE company_id = $1', [id]);
+
+  // 4. Delete tenant-specific custom roles of this company
+  await pool.query('DELETE FROM core_roles WHERE company_id = $1', [id]);
+
+  // 5. Delete company record
   await pool.query('DELETE FROM core_companies WHERE id = $1', [id]);
   return true;
 }

@@ -253,7 +253,17 @@ export const authApi = {
     return res.json()
   },
 
-  async updateCompany(id: string, data: { name?: string; code?: string; description?: string }): Promise<{ success: boolean; company: Company }> {
+  async updateCompany(
+    id: string,
+    data: {
+      name?: string
+      code?: string
+      description?: string
+      admin_name?: string
+      admin_email?: string
+      admin_password?: string
+    }
+  ): Promise<{ success: boolean; company: Company }> {
     const res = await fetch(`/api/v1/companies/${encodeURIComponent(id)}`, {
       method: "PUT",
       headers: {

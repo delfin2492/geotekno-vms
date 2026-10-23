@@ -12,6 +12,7 @@ export interface Company {
   name: string
   code: string
   description?: string
+  adminUser?: { id: string; name: string; email: string } | null
   vesselCount?: number
   userCount?: number
   agentCount?: number

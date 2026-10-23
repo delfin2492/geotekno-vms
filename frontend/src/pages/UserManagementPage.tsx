@@ -272,8 +272,8 @@ export function UserManagementPage() {
       name: comp.name,
       code: comp.code || "",
       description: comp.description || "",
-      admin_name: "",
-      admin_email: "",
+      admin_name: comp.adminUser?.name || "",
+      admin_email: comp.adminUser?.email || "",
       admin_password: "",
     })
     setIsCompanyModalOpen(true)
@@ -300,6 +300,9 @@ export function UserManagementPage() {
           name: companyFormData.name,
           code: companyFormData.code,
           description: companyFormData.description,
+          admin_name: companyFormData.admin_name || undefined,
+          admin_email: companyFormData.admin_email || undefined,
+          admin_password: companyFormData.admin_password || undefined,
         })
         setSuccess(`Company "${companyFormData.name}" updated successfully.`)
       }
@@ -329,7 +332,7 @@ export function UserManagementPage() {
       title: "Delete Company",
       message: (
         <span>
-          Are you sure you want to delete company <strong>"{comp.name}"</strong>? Any vessels, agents, or users assigned to this company will become unassigned.
+          Are you sure you want to delete company <strong>"{comp.name}"</strong>? All tenant user accounts and custom roles associated with this company will be removed, and vessels/agents will be unlinked.
         </span>
       ),
       confirmLabel: "Delete Company",
@@ -1027,6 +1030,17 @@ export function UserManagementPage() {
                             {comp.userCount ?? 0}
                           </span>
                         </div>
+                        {comp.adminUser && (
+                          <div className="flex items-center justify-between text-slate-600 pt-1 border-t border-slate-200/60">
+                            <span className="flex items-center gap-1.5 text-[11px]">
+                              <ShieldCheck className="h-3.5 w-3.5 text-blue-500" />
+                              Company Admin:
+                            </span>
+                            <span className="font-semibold text-slate-800 text-[11px] truncate max-w-[150px]" title={`${comp.adminUser.name} (${comp.adminUser.email})`}>
+                              {comp.adminUser.name}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -1644,59 +1658,66 @@ export function UserManagementPage() {
                   />
                 </div>
 
-                {companyModalMode === "create" && (
-                  <div className="pt-3 border-t border-slate-100 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="h-4 w-4 text-[#db4040]" />
-                      <h4 className="text-xs font-bold text-slate-800">Initial Company Admin Account</h4>
-                    </div>
-                    <p className="text-[11px] text-slate-400">
-                      Creates the primary tenant administrator account for this company.
-                    </p>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700">
-                        Admin Full Name <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required={companyModalMode === "create"}
-                        value={companyFormData.admin_name}
-                        onChange={(e) => setCompanyFormData({ ...companyFormData, admin_name: e.target.value })}
-                        placeholder="e.g. Bpk. Bambang - IT Lead"
-                        className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700">
-                        Admin Email (Login ID) <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="email"
-                        required={companyModalMode === "create"}
-                        value={companyFormData.admin_email}
-                        onChange={(e) => setCompanyFormData({ ...companyFormData, admin_email: e.target.value })}
-                        placeholder="e.g. admin@pelni.co.id"
-                        className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700">
-                        Initial Password <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="password"
-                        required={companyModalMode === "create"}
-                        value={companyFormData.admin_password}
-                        onChange={(e) => setCompanyFormData({ ...companyFormData, admin_password: e.target.value })}
-                        placeholder="••••••••••••"
-                        className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
-                      />
-                    </div>
+                <div className="pt-3 border-t border-slate-100 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4 text-[#db4040]" />
+                    <h4 className="text-xs font-bold text-slate-800">
+                      {companyModalMode === "create" ? "Initial Company Admin Account" : "Company Admin Account"}
+                    </h4>
                   </div>
-                )}
+                  <p className="text-[11px] text-slate-400">
+                    {companyModalMode === "create"
+                      ? "Creates the primary tenant administrator account for this company."
+                      : "Manage the primary tenant administrator account for this company."}
+                  </p>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700">
+                      Admin Full Name {companyModalMode === "create" && <span className="text-red-500">*</span>}
+                    </label>
+                    <input
+                      type="text"
+                      required={companyModalMode === "create"}
+                      value={companyFormData.admin_name}
+                      onChange={(e) => setCompanyFormData({ ...companyFormData, admin_name: e.target.value })}
+                      placeholder="e.g. Bpk. Bambang - IT Lead"
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700">
+                      Admin Email (Login ID) {companyModalMode === "create" && <span className="text-red-500">*</span>}
+                    </label>
+                    <input
+                      type="email"
+                      required={companyModalMode === "create"}
+                      value={companyFormData.admin_email}
+                      onChange={(e) => setCompanyFormData({ ...companyFormData, admin_email: e.target.value })}
+                      placeholder="e.g. admin@pelni.co.id"
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700">
+                      {companyModalMode === "create" ? "Initial Password" : "Reset Password"} {companyModalMode === "create" && <span className="text-red-500">*</span>}
+                    </label>
+                    <input
+                      type="password"
+                      required={companyModalMode === "create"}
+                      value={companyFormData.admin_password}
+                      onChange={(e) => setCompanyFormData({ ...companyFormData, admin_password: e.target.value })}
+                      placeholder={companyModalMode === "create" ? "••••••••••••" : "Leave blank to keep current password"}
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                    />
+                    {companyModalMode === "edit" && (
+                      <p className="mt-1 text-[10px] text-slate-400">
+                        Leave blank if you do not wish to reset the Company Admin's password.
+                      </p>
+                    )}
+                  </div>
+                </div>
 
                 <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
                   <button

@@ -1181,8 +1181,15 @@ function createApiRouter() {
 
   router.put('/v1/companies/:id', requireSuperadmin, async (req, res) => {
     try {
-      const { name, code, description } = req.body;
-      const updated = await companyRepo.updateCompany(req.params.id, { name, code, description });
+      const { name, code, description, admin_name, admin_email, admin_password, adminName, adminEmail, adminPassword } = req.body;
+      const updated = await companyRepo.updateCompany(req.params.id, {
+        name,
+        code,
+        description,
+        admin_name: admin_name || adminName,
+        admin_email: admin_email || adminEmail,
+        admin_password: admin_password || adminPassword,
+      });
       res.json({ success: true, company: updated });
     } catch (err) {
       res.status(400).json({ error: err.message });
