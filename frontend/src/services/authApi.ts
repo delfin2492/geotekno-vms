@@ -16,6 +16,8 @@ export interface Role {
   name: string
   description?: string
   is_system?: boolean
+  company_id?: string
+  companyId?: string
   permissions: {
     pages: Record<string, PermissionItem>
     features: Record<string, PermissionItem>
@@ -41,6 +43,8 @@ export interface User {
   role_name?: string
   role_description?: string
   isSuperadmin: boolean
+  isCompanyAdmin?: boolean
+  is_company_admin?: boolean
   isActive?: boolean
   vessels: string[]
   permissions: UserPermissions
@@ -190,6 +194,7 @@ export const authApi = {
   async createRole(data: {
     name: string
     description?: string
+    company_id?: string
     permissions: Array<{ resource_type: string; resource_key: string; can_read: boolean; can_write: boolean }>
   }): Promise<{ success: boolean; role: Role }> {
     return authRequest<{ success: boolean; role: Role }>("/roles", {
@@ -203,6 +208,7 @@ export const authApi = {
     data: {
       name?: string
       description?: string
+      company_id?: string
       permissions?: Array<{ resource_type: string; resource_key: string; can_read: boolean; can_write: boolean }>
     }
   ): Promise<{ success: boolean; role: Role }> {
@@ -228,7 +234,14 @@ export const authApi = {
     return res.json()
   },
 
-  async createCompany(data: { name: string; code?: string; description?: string }): Promise<{ success: boolean; company: Company }> {
+  async createCompany(data: {
+    name: string
+    code?: string
+    description?: string
+    admin_name?: string
+    admin_email?: string
+    admin_password?: string
+  }): Promise<{ success: boolean; company: Company; adminUser?: User }> {
     const res = await fetch("/api/v1/companies", {
       method: "POST",
       headers: {

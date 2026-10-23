@@ -48,9 +48,9 @@ const AVAILABLE_SECTIONS = [
 ]
 
 export function UserManagementPage() {
-  const { user: currentUser, canAccessPage } = useAuth()
-  const isSuperadmin = Boolean(currentUser?.isSuperadmin ?? (currentUser as any)?.is_superadmin)
-  const canWriteUser = isSuperadmin || canAccessPage("users", "write")
+  const { user: currentUser, canAccessPage, isSuperadmin, isCompanyAdmin, companyId: userCompanyId } = useAuth()
+  const canWriteUser = isSuperadmin || isCompanyAdmin || canAccessPage("users", "write")
+  const canManageRoles = isSuperadmin || isCompanyAdmin
 
   const [activeTab, setActiveTab] = useState<"users" | "roles" | "companies">("users")
   const [users, setUsers] = useState<User[]>([])
@@ -116,6 +116,9 @@ export function UserManagementPage() {
     name: "",
     code: "",
     description: "",
+    admin_name: "",
+    admin_email: "",
+    admin_password: "",
   })
 
   // Dynamic Monitoring Sections loaded from DB
@@ -255,6 +258,9 @@ export function UserManagementPage() {
       name: "",
       code: "",
       description: "",
+      admin_name: "",
+      admin_email: "",
+      admin_password: "",
     })
     setIsCompanyModalOpen(true)
   }
@@ -266,6 +272,9 @@ export function UserManagementPage() {
       name: comp.name,
       code: comp.code || "",
       description: comp.description || "",
+      admin_name: "",
+      admin_email: "",
+      admin_password: "",
     })
     setIsCompanyModalOpen(true)
   }
@@ -279,8 +288,12 @@ export function UserManagementPage() {
           name: companyFormData.name,
           code: companyFormData.code,
           description: companyFormData.description,
+          admin_name: companyFormData.admin_name,
+          admin_email: companyFormData.admin_email,
+          admin_password: companyFormData.admin_password,
         })
-        setSuccess(`Company "${companyFormData.name}" registered successfully.`)
+        const adminMsg = companyFormData.admin_email ? ` with Company Admin account (${companyFormData.admin_email})` : ""
+        setSuccess(`Company "${companyFormData.name}" registered successfully${adminMsg}.`)
       } else {
         if (!selectedCompany) return
         await authApi.updateCompany(selectedCompany.id, {
@@ -476,10 +489,12 @@ export function UserManagementPage() {
         })),
       ]
 
+      const targetComp = isSuperadmin ? null : userCompanyId
       if (roleModalMode === "create") {
         await authApi.createRole({
           name: roleFormData.name,
           description: roleFormData.description,
+          company_id: targetComp || undefined,
           permissions: permissionsPayload,
         })
         setSuccess(`Role "${roleFormData.name}" created successfully.`)
@@ -488,6 +503,7 @@ export function UserManagementPage() {
         await authApi.updateRole(selectedRole.id, {
           name: roleFormData.name,
           description: roleFormData.description,
+          company_id: selectedRole.company_id,
           permissions: permissionsPayload,
         })
         setSuccess(`Role "${roleFormData.name}" updated successfully.`)
@@ -577,7 +593,7 @@ export function UserManagementPage() {
                 </button>
               )
             ) : activeTab === "roles" ? (
-              isSuperadmin && (
+              canManageRoles && (
                 <button
                   onClick={openCreateRoleModal}
                   className="flex items-center gap-2 rounded-xl bg-[#db4040] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-700 cursor-pointer"
@@ -612,7 +628,7 @@ export function UserManagementPage() {
             <Users className="h-4 w-4" />
             <span>Users Directory ({users.length})</span>
           </button>
-          {isSuperadmin && (
+          {canManageRoles && (
             <button
               onClick={() => setActiveTab("roles")}
               className={`flex items-center gap-2 px-5 py-3 text-xs font-bold border-b-2 transition cursor-pointer ${activeTab === "roles"
@@ -914,15 +930,19 @@ export function UserManagementPage() {
                     </div>
 
                     <div className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
-                      <button
-                        onClick={() => openEditRoleModal(role)}
-                        className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-                      >
-                        <Edit2 className="h-3.5 w-3.5" />
-                        <span>Edit Permissions</span>
-                      </button>
+                      {(!role.is_system || isSuperadmin) ? (
+                        <button
+                          onClick={() => openEditRoleModal(role)}
+                          className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                        >
+                          <Edit2 className="h-3.5 w-3.5" />
+                          <span>Edit Permissions</span>
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 italic">System Template</span>
+                      )}
 
-                      {!role.is_system && (
+                      {!role.is_system && (isSuperadmin || role.company_id === userCompanyId) && (
                         <button
                           onClick={() => handleDeleteRole(role)}
                           className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 transition cursor-pointer"
@@ -1616,13 +1636,67 @@ export function UserManagementPage() {
                     Description <span className="text-slate-400 font-normal">(Optional)</span>
                   </label>
                   <textarea
-                    rows={3}
+                    rows={2}
                     value={companyFormData.description}
                     onChange={(e) => setCompanyFormData({ ...companyFormData, description: e.target.value })}
                     placeholder="Fleet operations description..."
                     className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
                   />
                 </div>
+
+                {companyModalMode === "create" && (
+                  <div className="pt-3 border-t border-slate-100 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="h-4 w-4 text-[#db4040]" />
+                      <h4 className="text-xs font-bold text-slate-800">Initial Company Admin Account</h4>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Creates the primary tenant administrator account for this company.
+                    </p>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700">
+                        Admin Full Name <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required={companyModalMode === "create"}
+                        value={companyFormData.admin_name}
+                        onChange={(e) => setCompanyFormData({ ...companyFormData, admin_name: e.target.value })}
+                        placeholder="e.g. Bpk. Bambang - IT Lead"
+                        className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700">
+                        Admin Email (Login ID) <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="email"
+                        required={companyModalMode === "create"}
+                        value={companyFormData.admin_email}
+                        onChange={(e) => setCompanyFormData({ ...companyFormData, admin_email: e.target.value })}
+                        placeholder="e.g. admin@pelni.co.id"
+                        className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700">
+                        Initial Password <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="password"
+                        required={companyModalMode === "create"}
+                        value={companyFormData.admin_password}
+                        onChange={(e) => setCompanyFormData({ ...companyFormData, admin_password: e.target.value })}
+                        placeholder="••••••••••••"
+                        className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
                   <button

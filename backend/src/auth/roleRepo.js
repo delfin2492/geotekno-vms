@@ -34,10 +34,15 @@ async function setRolePermissions(roleId, permissions = []) {
   }
 }
 
-async function listRoles() {
-  const res = await pool.query(
-    'SELECT id, name, description, is_system, created_at, updated_at FROM core_roles ORDER BY is_system DESC, created_at ASC'
-  );
+async function listRoles(companyId = null, isSuperadmin = true) {
+  let query = 'SELECT id, name, description, is_system, company_id, created_at, updated_at FROM core_roles';
+  const params = [];
+  if (!isSuperadmin && companyId) {
+    query += ' WHERE company_id = $1 OR company_id IS NULL';
+    params.push(companyId);
+  }
+  query += ' ORDER BY is_system DESC, created_at ASC';
+  const res = await pool.query(query, params);
   const roles = res.rows;
   for (const r of roles) {
     r.permissions = await getRolePermissions(r.id);
@@ -50,7 +55,7 @@ async function listRoles() {
 
 async function getRoleById(id) {
   const res = await pool.query(
-    'SELECT id, name, description, is_system, created_at, updated_at FROM core_roles WHERE id = $1',
+    'SELECT id, name, description, is_system, company_id, created_at, updated_at FROM core_roles WHERE id = $1',
     [id]
   );
   if (!res.rows[0]) return null;
@@ -59,15 +64,15 @@ async function getRoleById(id) {
   return role;
 }
 
-async function createRole({ name, description, permissions = [] }) {
+async function createRole({ name, description, company_id = null, permissions = [] }) {
   const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
   const id = `role_${slug}_${crypto.randomBytes(3).toString('hex')}`;
 
   const res = await pool.query(
-    `INSERT INTO core_roles (id, name, description, is_system)
-     VALUES ($1, $2, $3, FALSE)
-     RETURNING id, name, description, is_system, created_at, updated_at`,
-    [id, name.trim(), description || '']
+    `INSERT INTO core_roles (id, name, description, is_system, company_id)
+     VALUES ($1, $2, $3, FALSE, $4)
+     RETURNING id, name, description, is_system, company_id, created_at, updated_at`,
+    [id, name.trim(), description || '', company_id || null]
   );
   const newRole = res.rows[0];
 
@@ -79,7 +84,7 @@ async function createRole({ name, description, permissions = [] }) {
   return newRole;
 }
 
-async function updateRole(id, { name, description, permissions }) {
+async function updateRole(id, { name, description, company_id, permissions }) {
   const fields = [];
   const values = [];
   let idx = 1;
@@ -92,12 +97,16 @@ async function updateRole(id, { name, description, permissions }) {
     fields.push(`description = $${idx++}`);
     values.push(description.trim());
   }
+  if (company_id !== undefined) {
+    fields.push(`company_id = $${idx++}`);
+    values.push(company_id || null);
+  }
   fields.push(`updated_at = NOW()`);
   values.push(id);
 
   const res = await pool.query(
     `UPDATE core_roles SET ${fields.join(', ')} WHERE id = $${idx}
-     RETURNING id, name, description, is_system, created_at, updated_at`,
+     RETURNING id, name, description, is_system, company_id, created_at, updated_at`,
     values
   );
   if (!res.rows[0]) return null;

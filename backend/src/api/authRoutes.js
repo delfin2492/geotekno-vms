@@ -104,6 +104,8 @@ function createAuthRouter() {
           companyId: user.company_id || 'comp_geotekno',
           companyName: user.company_name || 'PT Geo Tekno Indonesia',
           isSuperadmin: !!user.is_superadmin,
+          isCompanyAdmin: !!user.is_company_admin,
+          is_company_admin: !!user.is_company_admin,
           vessels,
           permissions,
         },
@@ -164,6 +166,8 @@ function createAuthRouter() {
           companyId: user.company_id || 'comp_geotekno',
           companyName: user.company_name || 'PT Geo Tekno Indonesia',
           isSuperadmin: !!user.is_superadmin,
+          isCompanyAdmin: !!user.is_company_admin,
+          is_company_admin: !!user.is_company_admin,
           vessels,
           permissions,
         },
@@ -209,6 +213,8 @@ function createAuthRouter() {
         companyId: user.company_id || 'comp_geotekno',
         companyName: user.company_name || 'PT Geo Tekno Indonesia',
         isSuperadmin: !!user.is_superadmin,
+        isCompanyAdmin: !!user.is_company_admin,
+        is_company_admin: !!user.is_company_admin,
         isActive: !!user.is_active,
         vessels,
         permissions,
@@ -228,13 +234,14 @@ function createAuthRouter() {
 
   // GET /roles - List all roles with permission sets and user count
   router.get('/roles', authenticate, (req, res, next) => {
-    if (req.user && (req.user.isSuperadmin || req.user.permissions?.pages?.users?.read)) {
+    if (req.user && (req.user.isSuperadmin || req.user.isCompanyAdmin || req.user.permissions?.pages?.users?.read)) {
       return next();
     }
     return res.status(403).json({ error: 'Forbidden: Akses ditolak', code: 'SUPERADMIN_REQUIRED' });
   }, async (req, res) => {
     try {
-      let roles = await listRoles();
+      const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
+      let roles = await listRoles(userCompId, req.user.isSuperadmin);
       if (!req.user.isSuperadmin) {
         roles = roles.filter(r => r.id !== 'role_superadmin');
       }
@@ -246,11 +253,17 @@ function createAuthRouter() {
   });
 
   // GET /roles/:id - Get single role detail
-  router.get('/roles/:id', authenticate, requireSuperadmin, async (req, res) => {
+  router.get('/roles/:id', authenticate, async (req, res) => {
     try {
       const role = await getRoleById(req.params.id);
       if (!role) {
         return res.status(404).json({ error: 'Role not found.' });
+      }
+      if (!req.user.isSuperadmin && role.company_id) {
+        const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
+        if (role.company_id !== userCompId) {
+          return res.status(403).json({ error: 'Forbidden: Role ini milik organisasi lain.' });
+        }
       }
       return res.json({ role });
     } catch (err) {
@@ -259,13 +272,17 @@ function createAuthRouter() {
   });
 
   // POST /roles - Create new custom role
-  router.post('/roles', authenticate, requireSuperadmin, async (req, res) => {
+  router.post('/roles', authenticate, async (req, res) => {
     try {
-      const { name, description, permissions } = req.body;
+      if (!req.user.isSuperadmin && !req.user.isCompanyAdmin) {
+        return res.status(403).json({ error: 'Forbidden: Hanya Superadmin atau Company Admin yang dapat membuat role baru.' });
+      }
+      const { name, description, company_id, permissions } = req.body;
       if (!name || !name.trim()) {
         return res.status(400).json({ error: 'Role name is required.' });
       }
-      const newRole = await createRole({ name, description, permissions });
+      const targetComp = req.user.isSuperadmin ? (company_id || null) : (req.user.companyId || req.user.company_id || 'comp_geotekno');
+      const newRole = await createRole({ name, description, company_id: targetComp, permissions });
       return res.status(201).json({ success: true, role: newRole });
     } catch (err) {
       console.error('[ROLE ERROR] Create role failed:', err);
@@ -274,9 +291,22 @@ function createAuthRouter() {
   });
 
   // PUT /roles/:id - Update existing role
-  router.put('/roles/:id', authenticate, requireSuperadmin, async (req, res) => {
+  router.put('/roles/:id', authenticate, async (req, res) => {
     try {
       const { id } = req.params;
+      const existing = await getRoleById(id);
+      if (!existing) {
+        return res.status(404).json({ error: 'Role not found.' });
+      }
+      if (existing.is_system && !req.user.isSuperadmin) {
+        return res.status(403).json({ error: 'Role template sistem bawaan tidak dapat diubah.' });
+      }
+      if (!req.user.isSuperadmin) {
+        const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
+        if (existing.company_id !== userCompId) {
+          return res.status(403).json({ error: 'Forbidden: Anda hanya dapat mengubah role milik organisasi Anda.' });
+        }
+      }
       const { name, description, permissions } = req.body;
       const updated = await updateRole(id, { name, description, permissions });
       if (!updated) {
@@ -290,9 +320,22 @@ function createAuthRouter() {
   });
 
   // DELETE /roles/:id - Delete role
-  router.delete('/roles/:id', authenticate, requireSuperadmin, async (req, res) => {
+  router.delete('/roles/:id', authenticate, async (req, res) => {
     try {
       const { id } = req.params;
+      const existing = await getRoleById(id);
+      if (!existing) {
+        return res.status(404).json({ error: 'Role not found.' });
+      }
+      if (existing.is_system) {
+        return res.status(403).json({ error: 'Role template sistem bawaan tidak dapat dihapus.' });
+      }
+      if (!req.user.isSuperadmin) {
+        const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
+        if (existing.company_id !== userCompId) {
+          return res.status(403).json({ error: 'Forbidden: Anda hanya dapat menghapus role milik organisasi Anda.' });
+        }
+      }
       const result = await deleteRole(id);
       if (!result.success) {
         return res.status(400).json({ error: result.error });

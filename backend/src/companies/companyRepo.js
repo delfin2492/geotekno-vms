@@ -1,5 +1,6 @@
 const { pool } = require('../db/pool');
 const crypto = require('crypto');
+const { createUser } = require('../auth/userRepo');
 
 async function listCompanies() {
   const query = `
@@ -61,7 +62,7 @@ async function getCompanyById(id) {
   };
 }
 
-async function createCompany({ name, code, description }) {
+async function createCompany({ name, code, description, admin_name, admin_email, admin_password, adminName, adminEmail, adminPassword }) {
   if (!name || !name.trim()) {
     throw new Error('Nama perusahaan wajib diisi.');
   }
@@ -77,10 +78,30 @@ async function createCompany({ name, code, description }) {
      RETURNING id, name, code, description, created_at, updated_at`,
     [id, cleanName, cleanCode, (description || '').trim()]
   );
+  const comp = res.rows[0];
+
+  let adminUser = null;
+  const aName = admin_name || adminName;
+  const aEmail = admin_email || adminEmail;
+  const aPass = admin_password || adminPassword;
+
+  if (aName && aEmail && aPass) {
+    adminUser = await createUser({
+      name: aName.trim(),
+      email: aEmail.trim().toLowerCase(),
+      password: aPass,
+      role_id: 'role_company_admin',
+      company_id: comp.id,
+      is_company_admin: true,
+      is_superadmin: false,
+    });
+  }
+
   return {
-    ...res.rows[0],
+    ...comp,
+    adminUser,
     vesselCount: 0,
-    userCount: 0,
+    userCount: adminUser ? 1 : 0,
     agentCount: 0,
   };
 }

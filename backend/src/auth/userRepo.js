@@ -17,7 +17,7 @@ async function findById(id) {
   const res = await pool.query(
     `SELECT u.id, u.name, u.username, u.email, u.role_id, r.name as role_name,
             u.company_id, c.name as company_name, c.code as company_code,
-            u.is_superadmin, u.is_active, u.created_at, u.updated_at 
+            u.is_superadmin, u.is_company_admin, u.is_active, u.created_at, u.updated_at 
      FROM core_users u
      LEFT JOIN core_roles r ON u.role_id = r.id
      LEFT JOIN core_companies c ON u.company_id = c.id
@@ -27,19 +27,20 @@ async function findById(id) {
   return res.rows[0] || null;
 }
 
-async function createUser({ name, username, email, password, role_id, company_id = 'comp_geotekno', is_superadmin, is_active = true }) {
+async function createUser({ name, username, email, password, role_id, company_id = 'comp_geotekno', is_superadmin, is_company_admin = false, is_active = true }) {
   const id = `usr_${crypto.randomBytes(8).toString('hex')}`;
   const passwordHash = hashPassword(password);
   const userUsername = username ? username.trim().toLowerCase() : name.trim().toLowerCase().replace(/\s+/g, '_');
   const roleId = role_id || 'role_fleet_operator';
   const isSuper = is_superadmin !== undefined ? is_superadmin : (roleId === 'role_superadmin');
+  const isCompAdmin = is_company_admin !== undefined ? is_company_admin : (roleId === 'role_company_admin');
   const compId = company_id || 'comp_geotekno';
 
   const res = await pool.query(
-    `INSERT INTO core_users (id, name, username, email, password_hash, role_id, company_id, is_superadmin, is_active)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-     RETURNING id, name, username, email, role_id, company_id, is_superadmin, is_active, created_at, updated_at`,
-    [id, name, userUsername, email.trim().toLowerCase(), passwordHash, roleId, compId, isSuper, is_active]
+    `INSERT INTO core_users (id, name, username, email, password_hash, role_id, company_id, is_superadmin, is_company_admin, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     RETURNING id, name, username, email, role_id, company_id, is_superadmin, is_company_admin, is_active, created_at, updated_at`,
+    [id, name, userUsername, email.trim().toLowerCase(), passwordHash, roleId, compId, isSuper, isCompAdmin, is_active]
   );
   const row = res.rows[0];
   if (!row) return null;
@@ -50,7 +51,7 @@ async function listUsers() {
   const usersRes = await pool.query(
     `SELECT u.id, u.name, u.username, u.email, u.role_id, r.name as role_name, r.description as role_description,
             u.company_id, c.name as company_name, c.code as company_code,
-            u.is_superadmin, u.is_active, u.created_at, u.updated_at 
+            u.is_superadmin, u.is_company_admin, u.is_active, u.created_at, u.updated_at 
      FROM core_users u
      LEFT JOIN core_roles r ON u.role_id = r.id
      LEFT JOIN core_companies c ON u.company_id = c.id
@@ -61,6 +62,7 @@ async function listUsers() {
   // Aggregate vessels and permissions for each user
   for (const user of users) {
     user.isSuperadmin = !!user.is_superadmin || user.role_id === 'role_superadmin';
+    user.isCompanyAdmin = !!user.is_company_admin || user.role_id === 'role_company_admin';
     user.isActive = !!user.is_active;
     user.vessels = await getUserVessels(user.id);
     user.permissions = await getUserPermissions(user.id);
@@ -69,7 +71,7 @@ async function listUsers() {
   return users;
 }
 
-async function updateUser(id, { name, username, email, role_id, company_id, is_active, is_superadmin, password }) {
+async function updateUser(id, { name, username, email, role_id, company_id, is_active, is_superadmin, is_company_admin, password }) {
   const fields = [];
   const values = [];
   let idx = 1;
@@ -93,6 +95,10 @@ async function updateUser(id, { name, username, email, role_id, company_id, is_a
       fields.push(`is_superadmin = $${idx++}`);
       values.push(role_id === 'role_superadmin');
     }
+    if (is_company_admin === undefined && role_id === 'role_company_admin') {
+      fields.push(`is_company_admin = $${idx++}`);
+      values.push(true);
+    }
   }
   if (company_id !== undefined) {
     fields.push(`company_id = $${idx++}`);
@@ -106,7 +112,14 @@ async function updateUser(id, { name, username, email, role_id, company_id, is_a
     fields.push(`is_superadmin = $${idx++}`);
     values.push(is_superadmin);
   }
+  if (is_company_admin !== undefined) {
+    fields.push(`is_company_admin = $${idx++}`);
+    values.push(is_company_admin);
+  }
   if (password) {
+    fields.push(`password_hash = $${idx++}`);
+    values.push(hashPassword(password));
+  }
     fields.push(`password_hash = $${idx++}`);
     values.push(hashPassword(password));
   }

@@ -6,6 +6,7 @@ interface AuthContextType {
   loading: boolean
   isAuthenticated: boolean
   isSuperadmin: boolean
+  isCompanyAdmin: boolean
   companyId: string
   companyName: string
   companyCode: string
@@ -69,6 +70,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const isSuperadmin = !!user?.isSuperadmin
+  const isCompanyAdmin = !!user?.isCompanyAdmin || !!user?.is_company_admin || user?.role_id === "role_company_admin"
 
   const canAccessPage = useCallback(
     (pageKey: string, action: "read" | "write" = "read"): boolean => {
@@ -134,6 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         isAuthenticated: !!user,
         isSuperadmin,
+        isCompanyAdmin,
         companyId: user?.company_id || user?.companyId || "comp_geotekno",
         companyName: user?.company_name || user?.companyName || "PT Geo Tekno Indonesia",
         companyCode: user?.company_code || "GEOTEKNO",

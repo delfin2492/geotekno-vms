@@ -347,4 +347,34 @@ UPDATE core_assets SET company_id = 'comp_geotekno' WHERE company_id IS NULL;
 ALTER TABLE core_agents ADD COLUMN IF NOT EXISTS company_id VARCHAR(64) REFERENCES core_companies(id) ON DELETE SET NULL;
 UPDATE core_agents SET company_id = 'comp_geotekno' WHERE company_id IS NULL;
 
+-- 17. Flag Company Admin & Company-Scoped Roles (GeoMesh Architecture)
+ALTER TABLE core_users ADD COLUMN IF NOT EXISTS is_company_admin BOOLEAN DEFAULT FALSE;
+ALTER TABLE core_roles DROP CONSTRAINT IF EXISTS core_roles_name_key;
+ALTER TABLE core_roles ADD COLUMN IF NOT EXISTS company_id VARCHAR(64) REFERENCES core_companies(id) ON DELETE CASCADE;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_core_roles_system_name ON core_roles (name) WHERE company_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_core_roles_company_name ON core_roles (company_id, name) WHERE company_id IS NOT NULL;
+
+-- Seed default Company Admin role
+INSERT INTO core_roles (id, name, description, is_system, company_id)
+VALUES ('role_company_admin', 'Company Admin', 'Full administrative authority within the designated company / tenant.', TRUE, NULL)
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description;
+
+INSERT INTO core_role_permissions (role_id, resource_type, resource_key, can_read, can_write)
+VALUES 
+    ('role_company_admin', 'PAGE', 'overview', TRUE, TRUE),
+    ('role_company_admin', 'PAGE', 'marine_traffic', TRUE, TRUE),
+    ('role_company_admin', 'PAGE', 'vessels', TRUE, TRUE),
+    ('role_company_admin', 'PAGE', 'monitoring', TRUE, TRUE),
+    ('role_company_admin', 'PAGE', 'logs', TRUE, TRUE),
+    ('role_company_admin', 'PAGE', 'export', TRUE, TRUE),
+    ('role_company_admin', 'PAGE', 'users', TRUE, TRUE),
+    ('role_company_admin', 'FEATURE', 'vessel.decoder', TRUE, TRUE),
+    ('role_company_admin', 'FEATURE', 'vessel.agent', TRUE, TRUE),
+    ('role_company_admin', 'FEATURE', 'telemetry.export', TRUE, TRUE),
+    ('role_company_admin', 'SECTION', 'section-nav', TRUE, TRUE),
+    ('role_company_admin', 'SECTION', 'section-engine', TRUE, TRUE),
+    ('role_company_admin', 'SECTION', '*', TRUE, TRUE)
+ON CONFLICT (role_id, resource_key) DO NOTHING;
+
+
 
