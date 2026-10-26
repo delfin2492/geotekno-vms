@@ -75,7 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const canAccessPage = useCallback(
     (pageKey: string, action: "read" | "write" = "read"): boolean => {
       if (!user) return false
-      if (user.isSuperadmin) return true
+      if (user.isSuperadmin || isCompanyAdmin) return true
 
       const pagePerm = user.permissions?.pages?.[pageKey]
       if (!pagePerm) return false
@@ -83,13 +83,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (action === "write") return !!pagePerm.write
       return !!pagePerm.read
     },
-    [user]
+    [user, isCompanyAdmin]
   )
 
   const canAccessFeature = useCallback(
     (featureKey: string, action: "read" | "write" = "read"): boolean => {
       if (!user) return false
-      if (user.isSuperadmin) return true
+      if (user.isSuperadmin || isCompanyAdmin) return true
 
       const featurePerm = user.permissions?.features?.[featureKey]
       if (!featurePerm) return false
@@ -97,17 +97,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (action === "write") return !!featurePerm.write
       return !!featurePerm.read
     },
-    [user]
+    [user, isCompanyAdmin]
   )
 
   const canAccessVessel = useCallback(
     (vesselId: string): boolean => {
       if (!user) return false
-      if (user.isSuperadmin) return true
+      if (user.isSuperadmin || isCompanyAdmin) return true
       if (user.vessels?.includes("*")) return true
       return !!user.vessels?.includes(vesselId)
     },
-    [user]
+    [user, isCompanyAdmin]
   )
 
   const canAccessSection = useCallback(

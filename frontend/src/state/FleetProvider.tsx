@@ -67,7 +67,7 @@ function sanitizeStorage<T extends { id: string }>(key: string): T[] {
 }
 
 export function FleetProvider({ children }: { children: ReactNode }) {
-  const { canAccessVessel, isSuperadmin } = useAuth()
+  const { canAccessVessel, isSuperadmin, isCompanyAdmin } = useAuth()
   const [vessels, setVessels] = useState<Vessel[]>(() =>
     sanitizeStorage<Vessel>(KEYS.vessels),
   )
@@ -189,15 +189,15 @@ export function FleetProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const permittedVessels = useMemo(
-    () => (isSuperadmin ? vessels : vessels.filter((v) => canAccessVessel(v.id))),
-    [vessels, canAccessVessel, isSuperadmin],
+    () => (isSuperadmin || isCompanyAdmin ? vessels : vessels.filter((v) => canAccessVessel(v.id))),
+    [vessels, canAccessVessel, isSuperadmin, isCompanyAdmin],
   )
 
   const permittedAgents = useMemo(() => {
-    if (isSuperadmin) return agents
+    if (isSuperadmin || isCompanyAdmin) return agents
     const allowedAgentIds = new Set(permittedVessels.flatMap((v) => v.agentIds || []))
     return agents.filter((a) => allowedAgentIds.has(a.id))
-  }, [agents, permittedVessels, isSuperadmin])
+  }, [agents, permittedVessels, isSuperadmin, isCompanyAdmin])
 
   const permittedLogs = useMemo(
     () =>

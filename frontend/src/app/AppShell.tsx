@@ -12,6 +12,7 @@ import {
   Users,
   LogOut,
   ShieldCheck,
+  Building2,
   X,
 } from "lucide-react"
 import { FleetProvider } from "@/state/FleetProvider"
@@ -56,7 +57,7 @@ function Logo() {
 }
 
 function ShellContent() {
-  const { user, logout, isSuperadmin, canAccessPage } = useAuth()
+  const { user, logout, isSuperadmin, isCompanyAdmin, canAccessPage } = useAuth()
   const navigate = useNavigate()
 
   const [open, setOpen] = useState(false)
@@ -138,7 +139,7 @@ function ShellContent() {
                     {user?.name || "Operator"}
                   </span>
                   <span className="block text-[9px] font-medium text-slate-400">
-                    {isSuperadmin ? "Super Admin" : "Fleet Operator"}
+                    {user?.role_name || (isSuperadmin ? "Super Admin" : isCompanyAdmin ? "Company Admin" : "Fleet Operator")}
                   </span>
                 </span>
                 <ChevronDown className="h-3 w-3 text-slate-400" />
@@ -154,9 +155,13 @@ function ShellContent() {
                         <span className="inline-flex items-center gap-1 rounded bg-red-50 px-2 py-0.5 text-[9px] font-bold text-[#db4040]">
                           <ShieldCheck className="h-3 w-3" /> SUPERADMIN
                         </span>
+                      ) : isCompanyAdmin ? (
+                        <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-0.5 text-[9px] font-bold text-blue-700 border border-blue-200">
+                          <Building2 className="h-3 w-3" /> COMPANY ADMIN
+                        </span>
                       ) : (
                         <span className="rounded bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-600">
-                          FLEET OPERATOR
+                          {user?.role_name ? user.role_name.toUpperCase() : "FLEET OPERATOR"}
                         </span>
                       )}
                     </div>

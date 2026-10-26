@@ -16,16 +16,21 @@ function hashToken(token) {
 }
 
 function generateAccessToken(user, permissions = {}, vessels = []) {
+  const isSuper = !!user.is_superadmin || user.role_id === 'role_superadmin';
+  const isCompAdmin = !!user.is_company_admin || user.role_id === 'role_company_admin';
+
   const payload = {
     sub: user.id,
     email: user.email,
     name: user.name,
-    isSuperadmin: !!user.is_superadmin,
-    isCompanyAdmin: !!user.is_company_admin,
+    roleId: user.role_id || user.roleId,
+    roleName: user.role_name || user.roleName || (isSuper ? 'Superadmin' : isCompAdmin ? 'Company Admin' : 'Fleet Operator'),
+    isSuperadmin: isSuper,
+    isCompanyAdmin: isCompAdmin,
     companyId: user.company_id || user.companyId || 'comp_geotekno',
     companyName: user.company_name || user.companyName || 'PT Geo Tekno Indonesia',
-    vessels: user.is_superadmin ? ['*'] : vessels,
-    permissions: user.is_superadmin
+    vessels: (isSuper || isCompAdmin) ? ['*'] : vessels,
+    permissions: isSuper
       ? { all: true }
       : permissions,
   };

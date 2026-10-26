@@ -4,8 +4,9 @@ const crypto = require('crypto');
 
 async function findByEmail(identifier) {
   const res = await pool.query(
-    `SELECT u.*, c.name as company_name, c.code as company_code
+    `SELECT u.*, r.name as role_name, c.name as company_name, c.code as company_code
      FROM core_users u
+     LEFT JOIN core_roles r ON u.role_id = r.id
      LEFT JOIN core_companies c ON u.company_id = c.id
      WHERE LOWER(u.email) = LOWER($1) OR LOWER(u.username) = LOWER($1) OR LOWER(u.name) = LOWER($1)`,
     [identifier]

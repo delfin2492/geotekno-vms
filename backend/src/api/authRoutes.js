@@ -70,7 +70,9 @@ function createAuthRouter() {
       // Ambil permissions & assigned vessels
       const permissions = await getUserPermissions(user.id);
       const vesselsRaw = await getUserVessels(user.id);
-      const vessels = user.is_superadmin
+      const isSuper = !!user.is_superadmin || user.role_id === 'role_superadmin';
+      const isCompAdmin = !!user.is_company_admin || user.role_id === 'role_company_admin';
+      const vessels = (isSuper || isCompAdmin)
         ? ['*']
         : vesselsRaw.map((v) => v.vessel_id);
 
@@ -98,14 +100,18 @@ function createAuthRouter() {
           id: user.id,
           name: user.name,
           email: user.email,
+          role_id: user.role_id,
+          roleId: user.role_id,
+          role_name: user.role_name || (isSuper ? 'Superadmin' : isCompAdmin ? 'Company Admin' : 'Fleet Operator'),
+          roleName: user.role_name || (isSuper ? 'Superadmin' : isCompAdmin ? 'Company Admin' : 'Fleet Operator'),
           company_id: user.company_id || 'comp_geotekno',
           company_name: user.company_name || 'PT Geo Tekno Indonesia',
           company_code: user.company_code || 'GEOTEKNO',
           companyId: user.company_id || 'comp_geotekno',
           companyName: user.company_name || 'PT Geo Tekno Indonesia',
-          isSuperadmin: !!user.is_superadmin,
-          isCompanyAdmin: !!user.is_company_admin,
-          is_company_admin: !!user.is_company_admin,
+          isSuperadmin: isSuper,
+          isCompanyAdmin: isCompAdmin,
+          is_company_admin: isCompAdmin,
           vessels,
           permissions,
         },
@@ -149,7 +155,9 @@ function createAuthRouter() {
 
       const permissions = await getUserPermissions(user.id);
       const vesselsRaw = await getUserVessels(user.id);
-      const vessels = user.is_superadmin ? ['*'] : vesselsRaw.map((v) => v.vessel_id);
+      const isSuper = !!user.is_superadmin || user.role_id === 'role_superadmin';
+      const isCompAdmin = !!user.is_company_admin || user.role_id === 'role_company_admin';
+      const vessels = (isSuper || isCompAdmin) ? ['*'] : vesselsRaw.map((v) => v.vessel_id);
 
       const newAccessToken = generateAccessToken(user, permissions, vessels);
 
@@ -160,14 +168,18 @@ function createAuthRouter() {
           id: user.id,
           name: user.name,
           email: user.email,
+          role_id: user.role_id,
+          roleId: user.role_id,
+          role_name: user.role_name || (isSuper ? 'Superadmin' : isCompAdmin ? 'Company Admin' : 'Fleet Operator'),
+          roleName: user.role_name || (isSuper ? 'Superadmin' : isCompAdmin ? 'Company Admin' : 'Fleet Operator'),
           company_id: user.company_id || 'comp_geotekno',
           company_name: user.company_name || 'PT Geo Tekno Indonesia',
           company_code: user.company_code || 'GEOTEKNO',
           companyId: user.company_id || 'comp_geotekno',
           companyName: user.company_name || 'PT Geo Tekno Indonesia',
-          isSuperadmin: !!user.is_superadmin,
-          isCompanyAdmin: !!user.is_company_admin,
-          is_company_admin: !!user.is_company_admin,
+          isSuperadmin: isSuper,
+          isCompanyAdmin: isCompAdmin,
+          is_company_admin: isCompAdmin,
           vessels,
           permissions,
         },
@@ -201,20 +213,26 @@ function createAuthRouter() {
       }
       const permissions = await getUserPermissions(user.id);
       const vesselsRaw = await getUserVessels(user.id);
-      const vessels = user.is_superadmin ? ['*'] : vesselsRaw.map((v) => v.vessel_id);
+      const isSuper = !!user.is_superadmin || user.role_id === 'role_superadmin';
+      const isCompAdmin = !!user.is_company_admin || user.role_id === 'role_company_admin';
+      const vessels = (isSuper || isCompAdmin) ? ['*'] : vesselsRaw.map((v) => v.vessel_id);
 
       return res.json({
         id: user.id,
         name: user.name,
         email: user.email,
+        role_id: user.role_id,
+        roleId: user.role_id,
+        role_name: user.role_name || (isSuper ? 'Superadmin' : isCompAdmin ? 'Company Admin' : 'Fleet Operator'),
+        roleName: user.role_name || (isSuper ? 'Superadmin' : isCompAdmin ? 'Company Admin' : 'Fleet Operator'),
         company_id: user.company_id || 'comp_geotekno',
         company_name: user.company_name || 'PT Geo Tekno Indonesia',
         company_code: user.company_code || 'GEOTEKNO',
         companyId: user.company_id || 'comp_geotekno',
         companyName: user.company_name || 'PT Geo Tekno Indonesia',
-        isSuperadmin: !!user.is_superadmin,
-        isCompanyAdmin: !!user.is_company_admin,
-        is_company_admin: !!user.is_company_admin,
+        isSuperadmin: isSuper,
+        isCompanyAdmin: isCompAdmin,
+        is_company_admin: isCompAdmin,
         isActive: !!user.is_active,
         vessels,
         permissions,

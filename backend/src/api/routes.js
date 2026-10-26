@@ -114,7 +114,8 @@ function createApiRouter() {
     if (req.user && !req.user.isSuperadmin) {
       const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
       all = all.filter(a => (a.company_id || 'comp_geotekno') === userCompId);
-      if (Array.isArray(req.user.vessels) && !req.user.vessels.includes('*')) {
+      const isCompAdmin = req.user.isCompanyAdmin || req.user.is_company_admin || req.user.role_id === 'role_company_admin';
+      if (!isCompAdmin && Array.isArray(req.user.vessels) && !req.user.vessels.includes('*')) {
         all = all.filter(a => req.user.vessels.includes(a.id));
       }
     } else if (queryComp && queryComp !== 'all') {
@@ -125,7 +126,8 @@ function createApiRouter() {
 
   router.post('/assets', async (req, res) => {
     try {
-      if (req.user && !req.user.isSuperadmin && !req.user.permissions?.pages?.vessels?.write) {
+      const isCompAdmin = req.user && (req.user.isCompanyAdmin || req.user.is_company_admin || req.user.role_id === 'role_company_admin');
+      if (req.user && !req.user.isSuperadmin && !isCompAdmin && !req.user.permissions?.pages?.vessels?.write) {
         return res.status(403).json({ error: 'Forbidden: Anda tidak memiliki izin menambah kapal.' });
       }
       const { id, agent_id, name, type, company_id, companyId, metadata } = req.body;
@@ -153,11 +155,12 @@ function createApiRouter() {
 
   router.put('/assets/:id', async (req, res) => {
     try {
+      const isCompAdmin = req.user && (req.user.isCompanyAdmin || req.user.is_company_admin || req.user.role_id === 'role_company_admin');
       if (req.user && !req.user.isSuperadmin) {
-        if (!req.user.permissions?.pages?.vessels?.write) {
+        if (!isCompAdmin && !req.user.permissions?.pages?.vessels?.write) {
           return res.status(403).json({ error: 'Forbidden: Anda tidak memiliki izin mengubah data kapal.' });
         }
-        if (Array.isArray(req.user.vessels) && !req.user.vessels.includes('*') && !req.user.vessels.includes(req.params.id)) {
+        if (!isCompAdmin && Array.isArray(req.user.vessels) && !req.user.vessels.includes('*') && !req.user.vessels.includes(req.params.id)) {
           return res.status(403).json({ error: 'Forbidden: Anda tidak ditugaskan untuk mengelola kapal ini.' });
         }
       }
