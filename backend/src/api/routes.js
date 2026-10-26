@@ -175,10 +175,18 @@ function createApiRouter() {
     }
   });
 
-  router.delete('/assets/:id', async (req, res) => {
+  router.delete(['/assets/:id', '/vessels/:id', '/v1/vessels/:id'], async (req, res) => {
     try {
+      const isCompAdmin = req.user && (req.user.isCompanyAdmin || req.user.is_company_admin || req.user.role_id === 'role_company_admin');
       if (req.user && !req.user.isSuperadmin) {
-        return res.status(403).json({ error: 'Forbidden: Hanya Superadmin yang berwenang menghapus kapal.' });
+        if (!isCompAdmin) {
+          return res.status(403).json({ error: 'Forbidden: Hanya Superadmin dan Company Admin yang berwenang menghapus kapal.' });
+        }
+        const asset = assetManager.getAsset(req.params.id);
+        const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
+        if (asset && asset.info.company_id && asset.info.company_id !== userCompId) {
+          return res.status(403).json({ error: 'Forbidden: Anda hanya berwenang menghapus kapal milik perusahaan Anda sendiri.' });
+        }
       }
       await assetManager.deleteAsset(req.params.id);
       res.json({ success: true });

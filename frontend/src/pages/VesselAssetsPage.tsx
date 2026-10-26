@@ -115,7 +115,7 @@ const blankAgent: AgentDraft = {
 }
 
 export function VesselAssetsPage() {
-  const { isSuperadmin, canAccessPage, canAccessFeature, companyId: userCompanyId } = useAuth()
+  const { isSuperadmin, isCompanyAdmin, canAccessPage, canAccessFeature, companyId: userCompanyId } = useAuth()
   const canWriteVessel = isSuperadmin || canAccessPage("vessels", "write")
   const canManageAgent = isSuperadmin || canAccessFeature("vessel.agent", "write")
   const canEditDecoder = isSuperadmin || canAccessFeature("vessel.decoder", "write")
@@ -764,7 +764,7 @@ export function VesselAssetsPage() {
                     <Edit3 className="h-3.5 w-3.5" /> Edit Vessel
                   </button>
                 )}
-                {isSuperadmin && (
+                {(isSuperadmin || isCompanyAdmin) && (
                   <button
                     onClick={() => {
                       setConfirmDialog({
@@ -786,7 +786,7 @@ export function VesselAssetsPage() {
                       })
                     }}
                     className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-50 transition"
-                    title="Delete vessel (Superadmin only)"
+                    title="Delete vessel"
                   >
                     <Trash2 className="h-3.5 w-3.5" /> Delete
                   </button>
