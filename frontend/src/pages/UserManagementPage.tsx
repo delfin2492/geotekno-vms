@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { authApi, type User, type Role } from "@/services/authApi"
 import { api } from "@/services/api"
 import type { Vessel, Company } from "@/domain/types"
@@ -23,6 +23,7 @@ import {
   Lock,
   Building2,
   Server,
+  Search,
 } from "lucide-react"
 
 const AVAILABLE_PAGES = [
@@ -48,7 +49,15 @@ const AVAILABLE_SECTIONS = [
 ]
 
 export function UserManagementPage() {
-  const { user: currentUser, canAccessPage, isSuperadmin, isCompanyAdmin, companyId: userCompanyId } = useAuth()
+  const {
+    user: currentUser,
+    canAccessPage,
+    isSuperadmin,
+    isCompanyAdmin,
+    companyId: userCompanyId,
+    selectedCompanyFilter,
+    setSelectedCompanyFilter,
+  } = useAuth()
   const canWriteUser = isSuperadmin || isCompanyAdmin || canAccessPage("users", "write")
   const canManageRoles = isSuperadmin || isCompanyAdmin
 
@@ -60,6 +69,40 @@ export function UserManagementPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+
+  // Filters for User and Role tabs
+  const [userSearchQuery, setUserSearchQuery] = useState("")
+  const [roleCategoryFilter, setRoleCategoryFilter] = useState<"all" | "platform" | "tenant">("all")
+
+  // Filtered Users based on Company Filter and Search Query
+  const filteredUsers = useMemo(() => {
+    return users.filter((u) => {
+      const compId = u.company_id || (u as any).companyId
+      const matchesCompany =
+        selectedCompanyFilter === "all" || compId === selectedCompanyFilter
+      const q = userSearchQuery.trim().toLowerCase()
+      const matchesSearch =
+        !q ||
+        u.name.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q) ||
+        (u.company_name || "").toLowerCase().includes(q) ||
+        (u.role_name || "").toLowerCase().includes(q)
+      return matchesCompany && matchesSearch
+    })
+  }, [users, selectedCompanyFilter, userSearchQuery])
+
+  // Filtered Roles based on Category Filter
+  const filteredRoles = useMemo(() => {
+    return roles.filter((r) => {
+      if (roleCategoryFilter === "platform") {
+        return r.id === "role_superadmin" || (r.is_system && r.id !== "role_company_admin")
+      }
+      if (roleCategoryFilter === "tenant") {
+        return r.id === "role_company_admin" || !r.is_system
+      }
+      return true
+    })
+  }, [roles, roleCategoryFilter])
 
   // Custom Confirmation / Alert Dialog State
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -175,12 +218,16 @@ export function UserManagementPage() {
   const openCreateUserModal = () => {
     setUserModalMode("create")
     setSelectedUser(null)
+    const defaultCompId = (isSuperadmin && selectedCompanyFilter !== "all")
+      ? selectedCompanyFilter
+      : (currentUser?.company_id || "comp_geotekno")
+
     setUserFormData({
       name: "",
       email: "",
       password: "",
       role_id: roles.length > 0 ? roles[0].id : "role_fleet_operator",
-      company_id: currentUser?.company_id || "comp_geotekno",
+      company_id: defaultCompId,
       is_active: true,
       assigned_vessels: vessels.length > 0 ? [vessels[0].id] : [],
     })
@@ -697,10 +744,73 @@ export function UserManagementPage() {
         {/* ========================================== */}
         {activeTab === "users" && (
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-6 py-4">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                Registered Accounts ({users.length})
-              </h2>
+            {/* Header Toolbar: Title, Company Filter & Search */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 px-6 py-4 bg-white">
+              <div className="flex items-center gap-3">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Registered Accounts ({filteredUsers.length}{filteredUsers.length !== users.length ? ` of ${users.length}` : ""})
+                </h2>
+                {isSuperadmin && selectedCompanyFilter !== "all" && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-0.5 text-[10px] font-bold text-blue-700 border border-blue-200">
+                    <Building2 className="h-3 w-3" />
+                    <span>{companies.find((c) => c.id === selectedCompanyFilter)?.name || "Filtered Organization"}</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCompanyFilter("all")}
+                      className="ml-0.5 text-blue-400 hover:text-blue-700 cursor-pointer"
+                      title="Clear company filter"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                )}
+              </div>
+
+              {/* Toolbar Controls */}
+              <div className="flex flex-wrap items-center gap-2.5">
+                {/* Search Input */}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                  <input
+                    type="text"
+                    value={userSearchQuery}
+                    onChange={(e) => setUserSearchQuery(e.target.value)}
+                    placeholder="Search accounts..."
+                    className="w-44 sm:w-56 rounded-xl border border-slate-200 bg-slate-50 pl-8 pr-7 py-1.5 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:bg-white focus:ring-1 focus:ring-[#db4040]"
+                  />
+                  {userSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setUserSearchQuery("")}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Company Filter Dropdown (Superadmin only) */}
+                {isSuperadmin && (
+                  <div className="flex items-center gap-1.5">
+                    <Building2 className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                    <select
+                      value={selectedCompanyFilter}
+                      onChange={(e) => setSelectedCompanyFilter(e.target.value)}
+                      className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 outline-none hover:bg-slate-100 focus:border-[#db4040] focus:bg-white cursor-pointer"
+                    >
+                      <option value="all">🏢 All Organizations ({users.length})</option>
+                      {companies.map((c) => {
+                        const count = users.filter((u) => (u.company_id || (u as any).companyId) === c.id).length
+                        return (
+                          <option key={c.id} value={c.id}>
+                            {c.name} ({count} accounts)
+                          </option>
+                        )
+                      })}
+                    </select>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -723,17 +833,27 @@ export function UserManagementPage() {
                         <p className="mt-2 font-medium">Loading user accounts...</p>
                       </td>
                     </tr>
-                  ) : users.length === 0 ? (
+                  ) : filteredUsers.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="py-12 text-center text-slate-400">
-                        No registered users found. Click "+ Add User" to register an operator.
+                        {users.length === 0 ? (
+                          "No registered users found. Click \"+ Add User\" to register an operator."
+                        ) : (
+                          <div className="space-y-1.5">
+                            <p className="font-semibold text-slate-600">No accounts match the current filter.</p>
+                            <p className="text-xs text-slate-400">
+                              Try clearing your search query or selecting "All Organizations".
+                            </p>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ) : (
-                    users.map((u) => {
+                    filteredUsers.map((u) => {
                       const isSelf = u.id === currentUser?.id
                       const isSuper = !!(u.isSuperadmin ?? (u as any).is_superadmin)
-                      const displayRoleName = u.role_name || (isSuper ? "Superadmin" : "Fleet Operator")
+                      const isTenantAdmin = !!(u.isCompanyAdmin ?? (u as any).is_company_admin ?? (u.role_id === "role_company_admin"))
+                      const displayRoleName = u.role_name || (isSuper ? "Superadmin" : isTenantAdmin ? "Company Admin" : "Fleet Operator")
                       const compName = u.company_name || companies.find((c) => c.id === u.company_id)?.name || "Geo Tekno"
 
                       return (
@@ -766,6 +886,11 @@ export function UserManagementPage() {
                             {isSuper ? (
                               <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 text-[10px] font-bold text-[#db4040] ring-1 ring-inset ring-red-600/20">
                                 <ShieldCheck className="h-3 w-3" />
+                                {displayRoleName}
+                              </span>
+                            ) : isTenantAdmin ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700 ring-1 ring-inset ring-blue-600/20">
+                                <Building2 className="h-3 w-3 text-blue-600" />
                                 {displayRoleName}
                               </span>
                             ) : (
@@ -858,12 +983,89 @@ export function UserManagementPage() {
         {/* ========================================== */}
         {activeTab === "roles" && (
           <div className="space-y-4">
+            {/* Role Category Filters & Create Role Button */}
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Category:
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setRoleCategoryFilter("all")}
+                    className={`rounded-xl px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
+                      roleCategoryFilter === "all"
+                        ? "bg-slate-900 text-white shadow-sm"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    All Roles ({roles.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRoleCategoryFilter("platform")}
+                    className={`rounded-xl px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
+                      roleCategoryFilter === "platform"
+                        ? "bg-rose-600 text-white shadow-sm"
+                        : "bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200"
+                    }`}
+                  >
+                    Platform & System ({roles.filter((r) => r.id !== "role_company_admin").length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRoleCategoryFilter("tenant")}
+                    className={`rounded-xl px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
+                      roleCategoryFilter === "tenant"
+                        ? "bg-blue-600 text-white shadow-sm"
+                        : "bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200"
+                    }`}
+                  >
+                    Tenant Templates ({roles.filter((r) => r.id === "role_company_admin" || !r.is_system).length})
+                  </button>
+                </div>
+              </div>
 
+              {canManageRoles && (
+                <button
+                  type="button"
+                  onClick={openCreateRoleModal}
+                  className="flex items-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Create Custom Role</span>
+                </button>
+              )}
+            </div>
+
+            {/* Roles Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {roles.map((role) => {
+              {filteredRoles.map((role) => {
                 const isSuperRole = role.id === "role_superadmin"
+                const isTenantAdminRole = role.id === "role_company_admin"
+                const isCustomRole = !role.is_system
                 const pageCount = Object.keys(role.permissions?.pages || {}).length
                 const featCount = Object.keys(role.permissions?.features || {}).length
+
+                // Distinct visual classification
+                let badgeLabel = "OPERATIONAL ROLE"
+                let badgeStyle = "bg-slate-100 text-slate-700 border border-slate-200"
+                let roleCategoryLabel = "Standard Operational Role"
+
+                if (isSuperRole) {
+                  badgeLabel = "PLATFORM ROOT"
+                  badgeStyle = "bg-rose-50 text-rose-700 border border-rose-200 font-extrabold"
+                  roleCategoryLabel = "GeoTekno Core Platform Admin"
+                } else if (isTenantAdminRole) {
+                  badgeLabel = "TENANT ADMINISTRATOR"
+                  badgeStyle = "bg-blue-50 text-blue-700 border border-blue-200 font-extrabold"
+                  roleCategoryLabel = "Template Role untuk Admin Klien"
+                } else if (isCustomRole) {
+                  const roleCompName = companies.find((c) => c.id === role.company_id)?.name
+                  badgeLabel = roleCompName ? `CUSTOM (${roleCompName})` : "CUSTOM ROLE"
+                  badgeStyle = "bg-purple-50 text-purple-700 border border-purple-200"
+                  roleCategoryLabel = "Custom Tenant Permission Matrix"
+                }
 
                 return (
                   <div
@@ -872,30 +1074,35 @@ export function UserManagementPage() {
                   >
                     <div>
                       <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2.5">
                           <span
-                            className={`flex h-8 w-8 items-center justify-center rounded-xl ${isSuperRole
-                                ? "bg-red-100 text-[#db4040]"
+                            className={`flex h-9 w-9 items-center justify-center rounded-xl ${
+                              isSuperRole
+                                ? "bg-rose-100 text-[#db4040]"
+                                : isTenantAdminRole
+                                ? "bg-blue-100 text-blue-600"
+                                : isCustomRole
+                                ? "bg-purple-100 text-purple-600"
                                 : "bg-slate-100 text-slate-700"
-                              }`}
+                            }`}
                           >
-                            <Shield className="h-4 w-4" />
+                            {isTenantAdminRole ? (
+                              <Building2 className="h-4 w-4" />
+                            ) : (
+                              <Shield className="h-4 w-4" />
+                            )}
                           </span>
                           <div>
                             <h3 className="text-sm font-bold text-slate-900">{role.name}</h3>
-                            <span className="text-[10px] text-slate-400">ID: {role.id}</span>
+                            <span className="text-[10px] text-slate-400 font-medium">
+                              {roleCategoryLabel}
+                            </span>
                           </div>
                         </div>
 
-                        {role.is_system ? (
-                          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-600">
-                            SYSTEM
-                          </span>
-                        ) : (
-                          <span className="rounded-md bg-blue-50 px-2 py-0.5 text-[9px] font-bold text-blue-600">
-                            CUSTOM
-                          </span>
-                        )}
+                        <span className={`rounded-md px-2 py-0.5 text-[9px] font-bold ${badgeStyle}`}>
+                          {badgeLabel}
+                        </span>
                       </div>
 
                       <p className="mt-3 text-xs text-slate-600 line-clamp-2 min-h-[32px]">
@@ -945,6 +1152,7 @@ export function UserManagementPage() {
                     <div className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
                       {(!role.is_system || isSuperadmin) ? (
                         <button
+                          type="button"
                           onClick={() => openEditRoleModal(role)}
                           className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
                         >
@@ -957,6 +1165,7 @@ export function UserManagementPage() {
 
                       {!role.is_system && (isSuperadmin || role.company_id === userCompanyId) && (
                         <button
+                          type="button"
                           onClick={() => handleDeleteRole(role)}
                           className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 transition cursor-pointer"
                         >
