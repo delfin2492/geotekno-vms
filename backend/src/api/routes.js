@@ -497,10 +497,6 @@ function createApiRouter() {
     if (req.user && !req.user.isSuperadmin) {
       const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
       assets = assets.filter(a => (a.info.company_id || 'comp_geotekno') === userCompId);
-      const isCompAdmin = req.user.isCompanyAdmin || req.user.is_company_admin || req.user.role_id === 'role_company_admin';
-      if (!isCompAdmin && Array.isArray(req.user.vessels) && !req.user.vessels.includes('*')) {
-        assets = assets.filter(a => req.user.vessels.includes(a.info.id));
-      }
     } else if (queryComp && queryComp !== 'all') {
       assets = assets.filter(a => (a.info.company_id || 'comp_geotekno') === queryComp);
     }

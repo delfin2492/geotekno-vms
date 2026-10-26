@@ -35,14 +35,11 @@ const {
 } = require('../auth/authMiddleware');
 const { assetManager } = require('../assets/assetManager');
 
-function resolveUserVessels(user, isSuper, isCompAdmin, vesselsRaw) {
+function resolveUserVessels(user, isSuper) {
   if (isSuper) return ['*'];
-  if (isCompAdmin) {
-    const userCompId = user.company_id || 'comp_geotekno';
-    const compAssets = assetManager.getAllAssets().filter(a => (a.company_id || 'comp_geotekno') === userCompId);
-    return compAssets.map(a => a.id);
-  }
-  return vesselsRaw.map((v) => v.vessel_id);
+  const userCompId = user.company_id || 'comp_geotekno';
+  const compAssets = assetManager.getAllAssets().filter(a => (a.company_id || 'comp_geotekno') === userCompId);
+  return compAssets.map(a => a.id);
 }
 
 function createAuthRouter() {
@@ -83,7 +80,7 @@ function createAuthRouter() {
       const vesselsRaw = await getUserVessels(user.id);
       const isSuper = !!user.is_superadmin || user.role_id === 'role_superadmin';
       const isCompAdmin = !!user.is_company_admin || user.role_id === 'role_company_admin';
-      const vessels = resolveUserVessels(user, isSuper, isCompAdmin, vesselsRaw);
+      const vessels = resolveUserVessels(user, isSuper);
 
       const accessToken = generateAccessToken(user, permissions, vessels);
       const refreshToken = generateRefreshToken(user);
@@ -166,7 +163,7 @@ function createAuthRouter() {
       const vesselsRaw = await getUserVessels(user.id);
       const isSuper = !!user.is_superadmin || user.role_id === 'role_superadmin';
       const isCompAdmin = !!user.is_company_admin || user.role_id === 'role_company_admin';
-      const vessels = resolveUserVessels(user, isSuper, isCompAdmin, vesselsRaw);
+      const vessels = resolveUserVessels(user, isSuper);
 
       const newAccessToken = generateAccessToken(user, permissions, vessels);
 
@@ -224,7 +221,7 @@ function createAuthRouter() {
       const vesselsRaw = await getUserVessels(user.id);
       const isSuper = !!user.is_superadmin || user.role_id === 'role_superadmin';
       const isCompAdmin = !!user.is_company_admin || user.role_id === 'role_company_admin';
-      const vessels = resolveUserVessels(user, isSuper, isCompAdmin, vesselsRaw);
+      const vessels = resolveUserVessels(user, isSuper);
 
       return res.json({
         id: user.id,
@@ -390,6 +387,10 @@ function createAuthRouter() {
       if (!req.user.isSuperadmin) {
         const userComp = req.user.companyId || req.user.company_id || 'comp_geotekno';
         users = users.filter(u => (u.company_id || 'comp_geotekno') === userComp);
+      }
+      for (const u of users) {
+        const isSuper = !!u.is_superadmin || u.role_id === 'role_superadmin';
+        u.vessels = resolveUserVessels(u, isSuper);
       }
       return res.json({ users });
     } catch (err) {
