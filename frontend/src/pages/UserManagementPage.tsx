@@ -43,9 +43,12 @@ const AVAILABLE_FEATURES = [
 ]
 
 const AVAILABLE_SECTIONS = [
-  { key: "section-nav", label: "Navigation & Maneuvering", desc: "Speed over ground, heading, compass, water depth, and position instruments" },
-  { key: "section-engine", label: "Engine & Machinery", desc: "Machinery status, propulsion RPM trends, and fuel telemetry diagnostics" },
-  { key: "*", label: "Custom / Additional Sections", desc: "Access to newly created dashboard sections and command centers" },
+  { key: "nav", label: "Navigation & Position", desc: "Coordinates, SOG, COG, Heading, ROT" },
+  { key: "wind", label: "Wind & Environment", desc: "Apparent / True Wind, Pressure, Sea Temp" },
+  { key: "depth", label: "Depth & Water", desc: "Depth below transducer, Water speed" },
+  { key: "engine", label: "Engine & Machinery", desc: "RPM, Boost, Oil pressure, Coolant temp" },
+  { key: "tanks", label: "Tanks & Fluid Levels", desc: "Fuel, Fresh water, Waste, Oil levels" },
+  { key: "electrical", label: "Electrical & Battery", desc: "Battery bank voltage, Current, Charger status" },
 ]
 
 export function UserManagementPage() {
@@ -151,6 +154,9 @@ export function UserManagementPage() {
     sectionPermissions: {} as Record<string, { read: boolean; write: boolean }>,
   })
 
+  // Dynamic Monitoring Sections loaded from DB
+  const [monitoringSections, setMonitoringSections] = useState<{ key: string; label: string; desc: string }[]>(AVAILABLE_SECTIONS)
+
   // Company Modals & State
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false)
   const [companyModalMode, setCompanyModalMode] = useState<"create" | "edit">("create")
@@ -165,9 +171,6 @@ export function UserManagementPage() {
     admin_email: "",
     admin_password: "",
   })
-
-  // Dynamic Monitoring Sections loaded from DB
-  const [monitoringSections, setMonitoringSections] = useState<{ key: string; label: string; desc: string }[]>(AVAILABLE_SECTIONS)
 
   const loadData = async () => {
     setLoading(true)
@@ -186,7 +189,7 @@ export function UserManagementPage() {
       setCompanies(Array.isArray(companiesRes) ? companiesRes : [])
 
       if (Array.isArray(sectionsRes) && sectionsRes.length > 0) {
-        const dynamicList = sectionsRes.map((s) => ({
+        const dynamicList = sectionsRes.map((s: any) => ({
           key: s.id,
           label: s.name,
           desc: s.description || `Section scope for ${s.name}`,
@@ -222,6 +225,10 @@ export function UserManagementPage() {
       ? selectedCompanyFilter
       : (currentUser?.company_id || "comp_geotekno")
 
+    const compVessels = vessels.filter(
+      (v) => !v.companyId || v.companyId === defaultCompId || (v as any).company_id === defaultCompId,
+    )
+
     setUserFormData({
       name: "",
       email: "",
@@ -229,7 +236,7 @@ export function UserManagementPage() {
       role_id: roles.length > 0 ? roles[0].id : "role_fleet_operator",
       company_id: defaultCompId,
       is_active: true,
-      assigned_vessels: vessels.length > 0 ? [vessels[0].id] : [],
+      assigned_vessels: compVessels.length > 0 ? [compVessels[0].id] : [],
     })
     setIsUserModalOpen(true)
   }
@@ -500,17 +507,11 @@ export function UserManagementPage() {
     })
 
     const secPerms: Record<string, { read: boolean; write: boolean }> = {}
-    // Ensure all sections currently loaded or previously configured in role are represented
-    const knownKeys = new Set([
-      ...monitoringSections.map((s) => s.key),
-      ...Object.keys(role.permissions?.sections || {}),
-    ])
-    knownKeys.forEach((key) => {
-      const existing = role.permissions?.sections?.[key]
-      const wildcard = role.permissions?.sections?.["*"]
-      secPerms[key] = {
-        read: existing?.read ?? wildcard?.read ?? (role.id === "role_superadmin"),
-        write: existing?.write ?? wildcard?.write ?? (role.id === "role_superadmin"),
+    monitoringSections.forEach((s) => {
+      const existing = role.permissions?.sections?.[s.key]
+      secPerms[s.key] = {
+        read: existing?.read ?? (role.id === "role_superadmin"),
+        write: existing?.write ?? (role.id === "role_superadmin"),
       }
     })
 
@@ -1456,8 +1457,9 @@ export function UserManagementPage() {
                         return (
                           <label
                             key={v.id}
-                            className={`flex items-center justify-between rounded-lg px-2.5 py-1.5 transition cursor-pointer ${checked ? "bg-white border border-red-200 shadow-xs" : "hover:bg-slate-100/70"
-                              }`}
+                            className={`flex items-center justify-between rounded-lg px-2.5 py-1.5 transition cursor-pointer ${
+                              checked ? "bg-white border border-red-200 shadow-xs" : "hover:bg-slate-100/70"
+                            }`}
                           >
                             <div className="flex items-center gap-2">
                               <input
