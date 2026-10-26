@@ -1599,7 +1599,8 @@ export function UserManagementPage() {
         {/* ========================================== */}
         {isCompanyModalOpen && (
           <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-900/60 p-3 sm:p-6 backdrop-blur-sm">
-            <div className="relative flex flex-col w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="relative flex flex-col w-full max-w-xl max-h-[90vh] rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+              {/* Header */}
               <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4 bg-white">
                 <div className="flex items-center gap-2.5">
                   <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
@@ -1623,36 +1624,37 @@ export function UserManagementPage() {
                 </button>
               </div>
 
-              <form onSubmit={handleCompanySubmit} className="p-6 space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700">
-                    Company Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={companyFormData.name}
-                    onChange={(e) => setCompanyFormData({ ...companyFormData, name: e.target.value })}
-                    placeholder="e.g. PT Pelayaran Nasional Indonesia"
-                    className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
-                  />
-                </div>
+              {/* Form Body with Internal Scroll */}
+              <form id="company-form" onSubmit={handleCompanySubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
+                {/* 1. Basic Company Info */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-bold text-slate-700">
+                      Company Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={companyFormData.name}
+                      onChange={(e) => setCompanyFormData({ ...companyFormData, name: e.target.value })}
+                      placeholder="e.g. PT Pelayaran Nasional Indonesia"
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                    />
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700">
-                    Company Code / Acronym <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={companyFormData.code}
-                    onChange={(e) => setCompanyFormData({ ...companyFormData, code: e.target.value.toUpperCase() })}
-                    placeholder="e.g. PELNI or PERTAMINA"
-                    className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 uppercase font-mono outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
-                  />
-                  <p className="mt-1 text-[10px] text-slate-400">
-                    Short uppercase code used for asset tags & agent identifiers.
-                  </p>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700">
+                      Code / Acronym <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={companyFormData.code}
+                      onChange={(e) => setCompanyFormData({ ...companyFormData, code: e.target.value.toUpperCase() })}
+                      placeholder="e.g. PELNI"
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-xs text-slate-800 uppercase font-mono outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                    />
+                  </div>
                 </div>
 
                 <div>
@@ -1668,55 +1670,62 @@ export function UserManagementPage() {
                   />
                 </div>
 
-                {/* Quota Settings */}
-                <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700">
-                      Fleet Vessels Quota <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      required
-                      min={1}
-                      max={999}
-                      value={companyFormData.max_vessels}
-                      onChange={(e) =>
-                        setCompanyFormData({
-                          ...companyFormData,
-                          max_vessels: parseInt(e.target.value, 10) || 1,
-                        })
-                      }
-                      className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
-                    />
-                    <p className="mt-1 text-[10px] text-slate-400">
-                      Max vessels this company can register
-                    </p>
+                {/* 2. Quota Settings */}
+                <div className="pt-3 border-t border-slate-100">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Ship className="h-4 w-4 text-emerald-600" />
+                    <h4 className="text-xs font-bold text-slate-800">Resource Quota Allocation</h4>
                   </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700">
+                        Fleet Vessels Quota <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        required
+                        min={1}
+                        max={999}
+                        value={companyFormData.max_vessels}
+                        onChange={(e) =>
+                          setCompanyFormData({
+                            ...companyFormData,
+                            max_vessels: parseInt(e.target.value, 10) || 1,
+                          })
+                        }
+                        className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                      />
+                      <p className="mt-1 text-[10px] text-slate-400">
+                        Max vessels allowed
+                      </p>
+                    </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700">
-                      Gateway Agents Quota <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      required
-                      min={1}
-                      max={50}
-                      value={companyFormData.max_agents}
-                      onChange={(e) =>
-                        setCompanyFormData({
-                          ...companyFormData,
-                          max_agents: parseInt(e.target.value, 10) || 1,
-                        })
-                      }
-                      className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
-                    />
-                    <p className="mt-1 text-[10px] text-slate-400">
-                      Max TCP listener agents allowed
-                    </p>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700">
+                        Gateway Agents Quota <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        required
+                        min={1}
+                        max={50}
+                        value={companyFormData.max_agents}
+                        onChange={(e) =>
+                          setCompanyFormData({
+                            ...companyFormData,
+                            max_agents: parseInt(e.target.value, 10) || 1,
+                          })
+                        }
+                        className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                      />
+                      <p className="mt-1 text-[10px] text-slate-400">
+                        Max TCP agents allowed
+                      </p>
+                    </div>
                   </div>
                 </div>
 
+                {/* 3. Company Admin Account */}
                 <div className="pt-3 border-t border-slate-100 space-y-3">
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="h-4 w-4 text-[#db4040]" />
@@ -1730,32 +1739,34 @@ export function UserManagementPage() {
                       : "Manage the primary tenant administrator account for this company."}
                   </p>
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700">
-                      Admin Full Name {companyModalMode === "create" && <span className="text-red-500">*</span>}
-                    </label>
-                    <input
-                      type="text"
-                      required={companyModalMode === "create"}
-                      value={companyFormData.admin_name}
-                      onChange={(e) => setCompanyFormData({ ...companyFormData, admin_name: e.target.value })}
-                      placeholder="e.g. Bpk. Bambang - IT Lead"
-                      className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
-                    />
-                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700">
+                        Admin Full Name {companyModalMode === "create" && <span className="text-red-500">*</span>}
+                      </label>
+                      <input
+                        type="text"
+                        required={companyModalMode === "create"}
+                        value={companyFormData.admin_name}
+                        onChange={(e) => setCompanyFormData({ ...companyFormData, admin_name: e.target.value })}
+                        placeholder="e.g. Bpk. Bambang"
+                        className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                      />
+                    </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700">
-                      Admin Email (Login ID) {companyModalMode === "create" && <span className="text-red-500">*</span>}
-                    </label>
-                    <input
-                      type="email"
-                      required={companyModalMode === "create"}
-                      value={companyFormData.admin_email}
-                      onChange={(e) => setCompanyFormData({ ...companyFormData, admin_email: e.target.value })}
-                      placeholder="e.g. admin@pelni.co.id"
-                      className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
-                    />
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700">
+                        Admin Email (Login ID) {companyModalMode === "create" && <span className="text-red-500">*</span>}
+                      </label>
+                      <input
+                        type="email"
+                        required={companyModalMode === "create"}
+                        value={companyFormData.admin_email}
+                        onChange={(e) => setCompanyFormData({ ...companyFormData, admin_email: e.target.value })}
+                        placeholder="e.g. admin@pelni.co.id"
+                        className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                      />
+                    </div>
                   </div>
 
                   <div>
@@ -1768,7 +1779,7 @@ export function UserManagementPage() {
                       value={companyFormData.admin_password}
                       onChange={(e) => setCompanyFormData({ ...companyFormData, admin_password: e.target.value })}
                       placeholder={companyModalMode === "create" ? "••••••••••••" : "Leave blank to keep current password"}
-                      className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040]"
                     />
                     {companyModalMode === "edit" && (
                       <p className="mt-1 text-[10px] text-slate-400">
@@ -1777,23 +1788,25 @@ export function UserManagementPage() {
                     )}
                   </div>
                 </div>
-
-                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setIsCompanyModalOpen(false)}
-                    className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="rounded-xl bg-[#db4040] px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-red-700 transition cursor-pointer"
-                  >
-                    {companyModalMode === "create" ? "Create Company" : "Save Changes"}
-                  </button>
-                </div>
               </form>
+
+              {/* Footer Actions (Fixed at bottom) */}
+              <div className="flex shrink-0 items-center justify-end gap-2.5 border-t border-slate-100 bg-slate-50/50 px-6 py-3.5">
+                <button
+                  type="button"
+                  onClick={() => setIsCompanyModalOpen(false)}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  form="company-form"
+                  className="rounded-xl bg-[#db4040] px-5 py-2 text-xs font-bold text-white shadow-sm hover:bg-red-700 transition cursor-pointer"
+                >
+                  {companyModalMode === "create" ? "Create Company" : "Save Changes"}
+                </button>
+              </div>
             </div>
           </div>
         )}
