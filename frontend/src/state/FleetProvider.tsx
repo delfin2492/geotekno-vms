@@ -67,10 +67,14 @@ function sanitizeStorage<T extends { id: string }>(key: string): T[] {
 }
 
 export function FleetProvider({ children }: { children: ReactNode }) {
-  const { canAccessVessel, isSuperadmin, isCompanyAdmin } = useAuth()
-  const [vessels, setVessels] = useState<Vessel[]>(() =>
-    sanitizeStorage<Vessel>(KEYS.vessels),
-  )
+  const { canAccessVessel, isSuperadmin, isCompanyAdmin, companyId: userCompanyId } = useAuth()
+  const [vessels, setVessels] = useState<Vessel[]>(() => {
+    const list = sanitizeStorage<Vessel>(KEYS.vessels)
+    if (!isSuperadmin && userCompanyId) {
+      return list.filter((v) => (v.companyId || (v as any).company_id || "comp_geotekno") === userCompanyId)
+    }
+    return list
+  })
   const [agents, setAgents] = useState<Agent[]>(() =>
     sanitizeStorage<Agent>(KEYS.agents),
   )
@@ -80,6 +84,15 @@ export function FleetProvider({ children }: { children: ReactNode }) {
   const [aisTargets, setAisTargets] = useState<AisTarget[]>([])
   const [logs, setLogs] = useState<RawLog[]>([])
   const [tracks, setTracks] = useState<Record<string, TrackPoint[]>>({})
+
+  // Purge any stale vessels from another tenant when switching users/companies
+  useEffect(() => {
+    if (!isSuperadmin && userCompanyId) {
+      setVessels((prev) =>
+        prev.filter((v) => (v.companyId || (v as any).company_id || "comp_geotekno") === userCompanyId)
+      )
+    }
+  }, [userCompanyId, isSuperadmin])
 
   // Cache to localStorage for offline fast restore
   useEffect(
@@ -188,34 +201,52 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const permittedVessels = useMemo(
-    () => (isSuperadmin || isCompanyAdmin ? vessels : vessels.filter((v) => canAccessVessel(v.id))),
-    [vessels, canAccessVessel, isSuperadmin, isCompanyAdmin],
-  )
+  const permittedVessels = useMemo(() => {
+    if (isSuperadmin) return vessels
+    // Multi-tenant isolation: strictly only return vessels of user's company
+    const myCompanyVessels = vessels.filter((v) => {
+      const vComp = v.companyId || (v as any).company_id || "comp_geotekno"
+      return vComp === userCompanyId
+    })
+    if (isCompanyAdmin) return myCompanyVessels
+    return myCompanyVessels.filter((v) => canAccessVessel(v.id))
+  }, [vessels, canAccessVessel, isSuperadmin, isCompanyAdmin, userCompanyId])
 
   const permittedAgents = useMemo(() => {
-    if (isSuperadmin || isCompanyAdmin) return agents
-    const allowedAgentIds = new Set(permittedVessels.flatMap((v) => v.agentIds || []))
-    return agents.filter((a) => allowedAgentIds.has(a.id))
-  }, [agents, permittedVessels, isSuperadmin, isCompanyAdmin])
+    if (isSuperadmin) return agents
+    return agents.filter((a) => {
+      const aComp = a.companyId || (a as any).company_id
+      return !aComp || aComp === userCompanyId
+    })
+  }, [agents, isSuperadmin, userCompanyId])
 
-  const permittedLogs = useMemo(
-    () =>
-      isSuperadmin
-        ? logs
-        : logs.filter((l) => Boolean(l.vesselId && canAccessVessel(l.vesselId))),
-    [logs, canAccessVessel, isSuperadmin],
-  )
+  const permittedLogs = useMemo(() => {
+    if (isSuperadmin) return logs
+    const allowedVesselIds = new Set(permittedVessels.map((v) => v.id))
+    return logs.filter((l) => Boolean(l.vesselId && allowedVesselIds.has(l.vesselId)))
+  }, [logs, permittedVessels, isSuperadmin])
+
+  const permittedTracks = useMemo(() => {
+    if (isSuperadmin) return tracks
+    const allowedVesselIds = new Set(permittedVessels.map((v) => v.id))
+    const res: Record<string, TrackPoint[]> = {}
+    for (const [id, pts] of Object.entries(tracks)) {
+      if (allowedVesselIds.has(id)) {
+        res[id] = pts
+      }
+    }
+    return res
+  }, [tracks, permittedVessels, isSuperadmin])
 
   const value = useMemo<FleetContextValue>(
     () => ({
       vessels: permittedVessels,
-      allVessels: vessels,
+      allVessels: permittedVessels,
       agents: permittedAgents,
       aisTargets,
       alerts,
       logs: permittedLogs,
-      tracks,
+      tracks: permittedTracks,
       addVessel: (draft) => {
         const tempId = `vessel_${Math.random().toString(16).slice(2, 10)}`
         const vessel: Vessel = {

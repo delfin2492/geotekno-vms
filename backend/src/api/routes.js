@@ -21,8 +21,13 @@ function createApiRouter() {
 
   // Status Platform
   router.get('/status', (req, res) => {
-    const agents = agentManager.getAllAgents();
-    const assets = assetManager.getAllAssets();
+    let agents = agentManager.getAllAgents();
+    let assets = assetManager.getAllAssets();
+    if (req.user && !req.user.isSuperadmin) {
+      const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
+      assets = assets.filter(a => (a.company_id || 'comp_geotekno') === userCompId);
+      agents = agents.filter(a => (a.company_id || a.companyId) === userCompId || !a.company_id);
+    }
     const activeAgent = agents.find(a => a.status === 'ONLINE') || agents[0];
 
     res.json({
@@ -47,11 +52,11 @@ function createApiRouter() {
 
     if (req.user && !req.user.isSuperadmin) {
       const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
-      agents = agents.filter(a => a.company_id === userCompId || !a.company_id);
+      agents = agents.filter(a => (a.company_id || a.companyId) === userCompId || !a.company_id);
     } else if (queryComp && queryComp !== 'all') {
-      agents = agents.filter(a => a.company_id === queryComp || !a.company_id);
+      agents = agents.filter(a => (a.company_id || a.companyId) === queryComp || !a.company_id);
     }
-    res.json(agents);
+    res.json(agents.map(formatAgent));
   });
 
   router.post(['/agents', '/v1/agents'], async (req, res) => {
@@ -324,6 +329,8 @@ function createApiRouter() {
     return {
       id: agent.id,
       name: agent.name,
+      company_id: agent.company_id || agent.companyId || null,
+      companyId: agent.company_id || agent.companyId || null,
       host: conf.host || agent.host || '0.0.0.0',
       port: conf.port || agent.port || 20005,
       decoders: decoders,
@@ -482,7 +489,7 @@ function createApiRouter() {
   }
 
   // --- V1 VESSELS CRUD ---
-  router.get('/v1/vessels', (req, res) => {
+  router.get(['/vessels', '/v1/vessels'], (req, res) => {
     let assets = Array.from(assetManager.assets.values());
     const agents = agentManager.getAllAgents();
     const queryComp = req.query.company_id || req.query.companyId;
@@ -490,7 +497,8 @@ function createApiRouter() {
     if (req.user && !req.user.isSuperadmin) {
       const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
       assets = assets.filter(a => (a.info.company_id || 'comp_geotekno') === userCompId);
-      if (Array.isArray(req.user.vessels) && !req.user.vessels.includes('*')) {
+      const isCompAdmin = req.user.isCompanyAdmin || req.user.is_company_admin || req.user.role_id === 'role_company_admin';
+      if (!isCompAdmin && Array.isArray(req.user.vessels) && !req.user.vessels.includes('*')) {
         assets = assets.filter(a => req.user.vessels.includes(a.info.id));
       }
     } else if (queryComp && queryComp !== 'all') {
@@ -500,7 +508,7 @@ function createApiRouter() {
     res.json(assets.map(a => formatVessel(a, agents)));
   });
 
-  router.post('/v1/vessels', async (req, res) => {
+  router.post(['/vessels', '/v1/vessels'], async (req, res) => {
     try {
       const { name, type, imo, mmsi, callSign, registerContent, register_content, agentIds = [], destination, company_id, companyId } = req.body;
       const targetCompany = (req.user && !req.user.isSuperadmin)
@@ -532,7 +540,7 @@ function createApiRouter() {
     }
   });
 
-  router.put('/v1/vessels/:id', async (req, res) => {
+  router.put(['/vessels/:id', '/v1/vessels/:id'], async (req, res) => {
     try {
       const existing = assetManager.getAsset(req.params.id);
       if (!existing) {
@@ -640,11 +648,6 @@ function createApiRouter() {
   });
 
   // --- V1 AGENTS CRUD & TEST ---
-  router.get('/v1/agents', (req, res) => {
-    const agents = agentManager.getAllAgents();
-    res.json(agents.map(formatAgent));
-  });
-
   router.post('/v1/agents', async (req, res) => {
     try {
       const { name, host = '0.0.0.0', port = 20005, decoders = ['NMEA2000'], decoderTemplate, decoderCode } = req.body;
@@ -757,14 +760,25 @@ function createApiRouter() {
   // --- V1 AIS TARGETS ---
   router.get('/v1/ais', (req, res) => {
     const vesselId = req.query.vessel_id || req.query.asset_id;
-    const asset = vesselId ? assetManager.getAsset(vesselId) : (assetManager.getAsset('vessel_c2e2cffb') || assetManager.getAllAssets()[0]);
+    let allowedAssets = assetManager.getAllAssets();
+    if (req.user && !req.user.isSuperadmin) {
+      const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
+      allowedAssets = allowedAssets.filter(a => (a.company_id || 'comp_geotekno') === userCompId);
+    }
+    const asset = vesselId ? assetManager.getAsset(vesselId) : allowedAssets[0];
     res.json(formatAisTargetsForAsset(asset));
   });
 
   // --- V1 TRACKS ---
   router.get('/v1/tracks', async (req, res) => {
     const result = {};
-    for (const [id, item] of assetManager.assets.entries()) {
+    let allowedAssets = Array.from(assetManager.assets.values());
+    if (req.user && !req.user.isSuperadmin) {
+      const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
+      allowedAssets = allowedAssets.filter(a => (a.info.company_id || 'comp_geotekno') === userCompId);
+    }
+    for (const item of allowedAssets) {
+      const id = item.info.id;
       const points = await getRecentTrack(120, id);
       result[id] = points.map(p => ({
         lat: p.latitude,
@@ -777,12 +791,21 @@ function createApiRouter() {
 
   // --- V1 LOGS ---
   router.get('/v1/logs', (req, res) => {
-    const logs = logBuffer.getLogs({ limit: 100 });
+    let allowedVesselIds = null;
+    if (req.user && !req.user.isSuperadmin) {
+      const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
+      const assets = Array.from(assetManager.assets.values()).filter(a => (a.info.company_id || 'comp_geotekno') === userCompId);
+      allowedVesselIds = new Set(assets.map(a => a.info.id));
+    }
+    let logs = logBuffer.getLogs({ limit: 100 });
+    if (allowedVesselIds) {
+      logs = logs.filter(l => !l.vessel_id || allowedVesselIds.has(l.vessel_id));
+    }
     const formatted = logs.map(l => ({
       id: String(l.id),
       timestamp: new Date(l.timestamp).toISOString(),
-      vesselId: l.vessel_id || 'vessel_c2e2cffb',
-      agentId: l.agent_id || 'agent_7a3d9b1e',
+      vesselId: l.vessel_id || '',
+      agentId: l.agent_id || '',
       decoder: l.protocol === 'NMEA0183' ? 'NMEA0183' : 'NMEA2000',
       severity: l.type === 'ERROR' ? 'error' : (l.type === 'WARN' ? 'warning' : 'info'),
       payload: l.raw || '',
@@ -806,7 +829,11 @@ function createApiRouter() {
       // Fallback: If DB query returns 0 rows (e.g. before persistent live stream frames recorded),
       // synthesize realistic records from current vessel snapshot & tracks so the user can always preview & export
       if (records.length === 0) {
-        const assets = assetManager.getAllAssets();
+        let assets = assetManager.getAllAssets();
+        if (req.user && !req.user.isSuperadmin) {
+          const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
+          assets = assets.filter(a => (a.company_id || 'comp_geotekno') === userCompId);
+        }
         let targetAsset = null;
         if (assetId && assetId !== 'all') {
           targetAsset = assetManager.getAsset(assetId) || assets[0];

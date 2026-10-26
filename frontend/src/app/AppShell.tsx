@@ -103,6 +103,11 @@ function ShellContent() {
       <header className="sticky top-0 z-[1000] border-b border-slate-200 bg-white text-slate-800 shadow-sm">
         <div className="mx-auto flex h-[68px] max-w-[1800px] items-center gap-3 px-4 sm:px-6">
           <Logo />
+          {/* Company Indicator */}
+          <div className="hidden md:flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-100/90 text-[11px] font-semibold text-slate-700 border border-slate-200">
+            <Building2 className="h-3.5 w-3.5 text-[#db4040]" />
+            <span className="truncate max-w-[200px]">{user?.company_name || user?.companyName || "GeoTekno"}</span>
+          </div>
           <nav
             className="mx-auto hidden items-center gap-1 lg:flex"
             aria-label="Primary navigation"
@@ -139,7 +144,7 @@ function ShellContent() {
                     {user?.name || "Operator"}
                   </span>
                   <span className="block text-[9px] font-medium text-slate-400">
-                    {user?.role_name || (isSuperadmin ? "Super Admin" : isCompanyAdmin ? "Company Admin" : "Fleet Operator")}
+                    {user?.company_name || user?.companyName || (isSuperadmin ? "Super Admin" : "GeoTekno")}
                   </span>
                 </span>
                 <ChevronDown className="h-3 w-3 text-slate-400" />
@@ -150,6 +155,10 @@ function ShellContent() {
                   <div className="border-b border-slate-100 px-3 py-2.5">
                     <p className="text-xs font-bold text-slate-900">{user?.name}</p>
                     <p className="text-[10px] text-slate-400 truncate">{user?.email}</p>
+                    <div className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-slate-600">
+                      <Building2 className="h-3.5 w-3.5 text-[#db4040]" />
+                      <span className="truncate">{user?.company_name || user?.companyName || "GeoTekno"}</span>
+                    </div>
                     <div className="mt-2 flex items-center gap-1.5">
                       {isSuperadmin ? (
                         <span className="inline-flex items-center gap-1 rounded bg-red-50 px-2 py-0.5 text-[9px] font-bold text-[#db4040]">

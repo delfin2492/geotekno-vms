@@ -103,11 +103,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const canAccessVessel = useCallback(
     (vesselId: string): boolean => {
       if (!user) return false
-      if (user.isSuperadmin || isCompanyAdmin) return true
-      if (user.vessels?.includes("*")) return true
+      if (user.isSuperadmin) return true
+      if (user.vessels?.includes("*") && user.isSuperadmin) return true
       return !!user.vessels?.includes(vesselId)
     },
-    [user, isCompanyAdmin]
+    [user]
   )
 
   const canAccessSection = useCallback(

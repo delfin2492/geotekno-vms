@@ -33,6 +33,17 @@ const {
   requireAuth,
   requireSuperadmin,
 } = require('../auth/authMiddleware');
+const { assetManager } = require('../assets/assetManager');
+
+function resolveUserVessels(user, isSuper, isCompAdmin, vesselsRaw) {
+  if (isSuper) return ['*'];
+  if (isCompAdmin) {
+    const userCompId = user.company_id || 'comp_geotekno';
+    const compAssets = assetManager.getAllAssets().filter(a => (a.company_id || 'comp_geotekno') === userCompId);
+    return compAssets.map(a => a.id);
+  }
+  return vesselsRaw.map((v) => v.vessel_id);
+}
 
 function createAuthRouter() {
   const router = express.Router();
@@ -72,9 +83,7 @@ function createAuthRouter() {
       const vesselsRaw = await getUserVessels(user.id);
       const isSuper = !!user.is_superadmin || user.role_id === 'role_superadmin';
       const isCompAdmin = !!user.is_company_admin || user.role_id === 'role_company_admin';
-      const vessels = (isSuper || isCompAdmin)
-        ? ['*']
-        : vesselsRaw.map((v) => v.vessel_id);
+      const vessels = resolveUserVessels(user, isSuper, isCompAdmin, vesselsRaw);
 
       const accessToken = generateAccessToken(user, permissions, vessels);
       const refreshToken = generateRefreshToken(user);
@@ -157,7 +166,7 @@ function createAuthRouter() {
       const vesselsRaw = await getUserVessels(user.id);
       const isSuper = !!user.is_superadmin || user.role_id === 'role_superadmin';
       const isCompAdmin = !!user.is_company_admin || user.role_id === 'role_company_admin';
-      const vessels = (isSuper || isCompAdmin) ? ['*'] : vesselsRaw.map((v) => v.vessel_id);
+      const vessels = resolveUserVessels(user, isSuper, isCompAdmin, vesselsRaw);
 
       const newAccessToken = generateAccessToken(user, permissions, vessels);
 
@@ -215,7 +224,7 @@ function createAuthRouter() {
       const vesselsRaw = await getUserVessels(user.id);
       const isSuper = !!user.is_superadmin || user.role_id === 'role_superadmin';
       const isCompAdmin = !!user.is_company_admin || user.role_id === 'role_company_admin';
-      const vessels = (isSuper || isCompAdmin) ? ['*'] : vesselsRaw.map((v) => v.vessel_id);
+      const vessels = resolveUserVessels(user, isSuper, isCompAdmin, vesselsRaw);
 
       return res.json({
         id: user.id,
