@@ -278,17 +278,21 @@ VALUES
 ON CONFLICT (role_id, resource_key) DO NOTHING;
 
 -- Seed default Superadmin (Password: AdminNav2026!)
-INSERT INTO core_users (id, name, email, password_hash, is_superadmin, is_active, role_id)
+INSERT INTO core_users (id, name, username, email, password_hash, is_superadmin, is_active, role_id)
 VALUES (
     'usr_superadmin_01',
     'Superadmin',
-    'admin@geotekno.id',
-    '$2b$10$aYsVl8e9hNjrZlXzvDn41uFjio3YmlxBTh50ENJ1CFpyQ5MCnvBLe',
+    'superadmin',
+    'superadmin@geotekno.id',
+    '$2b$10$CG39MR5eb2DNfHhcnp3oGuywIjacTJE9Ho1YKWINyMGMem8kpiFR2',
     TRUE,
     TRUE,
     'role_superadmin'
 )
 ON CONFLICT (id) DO UPDATE SET 
+    username = 'superadmin',
+    email = 'superadmin@geotekno.id',
+    password_hash = '$2b$10$CG39MR5eb2DNfHhcnp3oGuywIjacTJE9Ho1YKWINyMGMem8kpiFR2',
     is_superadmin = TRUE,
     is_active = TRUE,
     role_id = 'role_superadmin';

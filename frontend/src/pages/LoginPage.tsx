@@ -73,18 +73,18 @@ export function LoginPage() {
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-300">
-              Email Address
+              Username or Email Address
             </label>
             <div className="relative mt-1.5">
               <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-500">
                 <UserIcon className="h-4 w-4" />
               </div>
               <input
-                type="email"
+                type="text"
                 required
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
-                placeholder="name@geotekno.id"
+                placeholder="superadmin@geotekno.id or superadmin"
                 autoFocus
                 className="w-full rounded-xl border border-slate-800 bg-slate-950/70 py-2.5 pr-4 pl-10 text-xs text-white placeholder-slate-500 shadow-sm transition focus:border-[#db4040] focus:ring-1 focus:ring-[#db4040] focus:outline-none"
               />
