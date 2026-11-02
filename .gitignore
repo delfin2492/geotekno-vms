@@ -44,3 +44,7 @@ backup/
 ~$*
 *.tmp
 ~*.tmp
+
+# Working docs and generator scripts
+doc/*.docx
+doc/generate_*.py

@@ -65,16 +65,16 @@ Aliran data telemetri mengalir dari sensor kapal menuju server cloud melalui pip
 
 ---
 
-## 📚 Buku Panduan & Dokumentasi Rekayasa (Folder `doc/`)
+## 📚 Manual Perangkat Keras & Diagram Arsitektur (Folder `doc/`)
 
-Repositori ini dilengkapi dengan dokumentasi resmi berstandar akademik dan industri yang terbagi berdasarkan kebutuhan pengguna:
+Repositori ini menyertakan dokumentasi manual resmi perangkat keras dan diagram arsitektur sistem maritim:
 
-| Dokumen | Format | Target Pengguna | Deskripsi Isi Dokumen |
+| File Dokumen | Format | Sasaran Pembaca | Deskripsi Isi Dokumen |
 | :--- | :---: | :--- | :--- |
-| **[`User Guide.docx`](doc/User%20Guide.docx)** | `.docx` | Tim Manajemen & Engineer | **Buku Panduan Lengkap Sistem VMS**: Format standar skripsi akademik, mengulas arsitektur sistem, format data NMEA 2000, NMEA 0183, konfigurasi CAN-to-TCP, dan integrasi Register Content. |
-| **[`Panduan_Teknisi_Lapangan.docx`](doc/Panduan_Teknisi_Lapangan.docx)** | `.docx` | Teknisi Lapangan (*Field Tech*) | **SOP Praktis Instalasi & Konfigurasi Kapal**: Checklist alat kerja, panduan konfigurasi Web GUI USR-CANET200 (Baud rate 250 Kbps, Time trigger 10 ms, TCP Client), pengisian Identity Packet, status lampu LED diagnostik, uji ping, dan matriks pemecahan masalah (*troubleshooting*). |
-| **[`Spesifikasi_Integrasi_Programmer.docx`](doc/Spesifikasi_Integrasi_Programmer.docx)** | `.docx` | Tim Software Engineer (*Backend/DevOps*) | **Spesifikasi Rekayasa Integrasi & Parsing**: Protokol biner 13-Byte, rumus bit-masking PGN 29-bit, kamus PGN (Navigasi, Transduser, Wind), pemetaan kalimat NMEA 0183 (Tabel 5.1), validasi Checksum XOR, skema DDL PostgreSQL/PostGIS, dan contoh implementasi kode parser Node.js. |
-| **[`arsitektur_sistem_vms.png`](doc/arsitektur_sistem_vms.png)** | `.png` | Semua Stakeholder | Diagram arsitektur visual resmi resolusi tinggi 300 DPI. |
+| **[`arsitektur_sistem_vms.png`](doc/arsitektur_sistem_vms.png)** | `.png` | Semua Stakeholder | **Diagram Arsitektur Sistem VMS**: Visual resmi alur telemetri dari NMEA 2000 / NMEA 0183, USR-CANET200, TCP Server Ingestion, PostgreSQL/TimescaleDB, hingga Frontend Web Map. |
+| **[`ECHOMAP_UHD2_6_7_9xsv_(Touch)_Install_ID-ID.pdf`](doc/ECHOMAP_UHD2_6_7_9xsv_(Touch)_Install_ID-ID.pdf)** | `.pdf` | Teknisi Lapangan (*Field Tech*) | **Panduan Pemasangan Garmin ECHOMAP UHD2 Touch Series**: Petunjuk instalasi fisik display chartplotter, transducer, serta skema kabel NMEA 2000 & daya maritim (Bahasa Indonesia). |
+| **[`USR-CANET200-User-Manual_V1.0.4.01.pdf`](doc/USR-CANET200-User-Manual_V1.0.4.01.pdf)** | `.pdf` | Teknisi & DevOps | **Manual Resmi USR-CANET200 Gateway**: Spesifikasi hardware converter CAN-to-Ethernet, pinout port CAN1/CAN2, konfigurasi Web GUI, mode TCP Client, dan parameter framing data CAN. |
+| **[`tmp_189_2-16-2023_110828_.pdf`](doc/tmp_189_2-16-2023_110828_.pdf)** | `.pdf` | Engineering | **Dokumen Referensi Teknis Perangkat**: Lembar spesifikasi teknis dan panduan operasional pendukung hardware telemetri. |
 
 ---
 
@@ -241,17 +241,11 @@ geotekno-vms/
 │       ├── services/           # HTTP API client & WebSocket connector
 │       └── state/              # AuthProvider & FleetProvider state management
 │
-└── doc/                        # Panduan teknis & spesifikasi rekayasa sistem
-    ├── arsitektur_sistem_vms.png               # Diagram visual arsitektur sistem
-    ├── User Guide.docx                         # Buku Panduan Lengkap Sistem VMS
-    ├── Panduan_Teknisi_Lapangan.docx           # SOP Panduan Praktis Teknisi Lapangan
-    ├── Spesifikasi_Integrasi_Programmer.docx   # Spesifikasi Teknis Integrasi Software
-    ├── generate_architecture_diagram.py        # Generator diagram visual arsitektur
-    ├── generate_user_guide_docx.py             # Generator User Guide lengkap
-    ├── generate_technician_guide.py            # Generator panduan teknisi lapangan
-    ├── generate_programmer_guide.py            # Generator spesifikasi programmer
-    ├── USR-CANET200-User-Manual_V1.0.4.01.pdf  # Manual resmi pabrikan USR
-    └── ECHOMAP_UHD2_Install_ID-ID.pdf          # Manual Garmin ECHOMAP UHD2
+└── doc/                        # Manual perangkat keras & diagram arsitektur
+    ├── arsitektur_sistem_vms.png                           # Diagram visual arsitektur sistem VMS
+    ├── ECHOMAP_UHD2_6_7_9xsv_(Touch)_Install_ID-ID.pdf     # Manual instalasi Garmin ECHOMAP UHD2 Touch
+    ├── USR-CANET200-User-Manual_V1.0.4.01.pdf              # Manual resmi gateway USR-CANET200
+    └── tmp_189_2-16-2023_110828_.pdf                       # Referensi teknis perangkat pendukung
 ```
 
 ---
