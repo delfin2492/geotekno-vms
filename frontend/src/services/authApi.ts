@@ -47,6 +47,7 @@ export interface User {
   is_company_admin?: boolean
   isActive?: boolean
   vessels: string[]
+  assigned_vessels?: string[]
   permissions: UserPermissions
   created_at?: string
   updated_at?: string
@@ -94,8 +95,50 @@ export function setStoredUser(user: User | null) {
 
 const BASE_URL = "/api/v1/auth"
 
+// In-flight refresh promise to prevent duplicate concurrent refresh requests
+let refreshPromise: Promise<string | null> | null = null
+
+export async function silentRefreshToken(): Promise<string | null> {
+  if (refreshPromise) {
+    return refreshPromise
+  }
+
+  refreshPromise = (async () => {
+    try {
+      const response = await fetch(`${BASE_URL}/refresh`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        credentials: "include",
+      })
+
+      if (!response.ok) {
+        return null
+      }
+
+      const data = await response.json()
+      if (data && data.accessToken) {
+        setStoredToken(data.accessToken)
+        if (data.user) {
+          setStoredUser(data.user)
+        }
+        return data.accessToken as string
+      }
+      return null
+    } catch {
+      return null
+    } finally {
+      refreshPromise = null
+    }
+  })()
+
+  return refreshPromise
+}
+
 async function authRequest<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const token = getStoredToken()
+  let token = getStoredToken()
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",
@@ -106,11 +149,24 @@ async function authRequest<T>(endpoint: string, options?: RequestInit): Promise<
     headers["Authorization"] = `Bearer ${token}`
   }
 
-  const response = await fetch(`${BASE_URL}${endpoint}`, {
+  let response = await fetch(`${BASE_URL}${endpoint}`, {
     ...options,
     headers,
     credentials: "include",
   })
+
+  // Silent retry once on 401 (token expired) for protected auth endpoints (except /login and /refresh)
+  if (response.status === 401 && endpoint !== "/login" && endpoint !== "/refresh") {
+    const newToken = await silentRefreshToken()
+    if (newToken) {
+      headers["Authorization"] = `Bearer ${newToken}`
+      response = await fetch(`${BASE_URL}${endpoint}`, {
+        ...options,
+        headers,
+        credentials: "include",
+      })
+    }
+  }
 
   if (!response.ok) {
     let errMessage = `HTTP Error ${response.status}`
@@ -127,6 +183,8 @@ async function authRequest<T>(endpoint: string, options?: RequestInit): Promise<
 }
 
 export const authApi = {
+  refreshToken: silentRefreshToken,
+
   async login(credentials: { email: string; password: string }): Promise<AuthResponse> {
     const res = await authRequest<AuthResponse>("/login", {
       method: "POST",

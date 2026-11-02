@@ -52,35 +52,61 @@ function createApiRouter() {
 
     if (req.user && !req.user.isSuperadmin) {
       const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
-      agents = agents.filter(a => (a.company_id || a.companyId) === userCompId || !a.company_id);
+      // Gateway Default Shared (Port 20005 & 20006) selalu terlihat oleh seluruh tenant
+      agents = agents.filter(a => {
+        const port = a.config?.port || a.port;
+        const isShared = (port === 20005 || port === 20006 || a.id === 'agent_7a3d9b1e' || a.id === 'agent_f4a8b2c6');
+        return isShared || (a.company_id || a.companyId) === userCompId || !a.company_id;
+      });
     } else if (queryComp && queryComp !== 'all') {
-      agents = agents.filter(a => (a.company_id || a.companyId) === queryComp || !a.company_id);
+      agents = agents.filter(a => {
+        const port = a.config?.port || a.port;
+        const isShared = (port === 20005 || port === 20006 || a.id === 'agent_7a3d9b1e' || a.id === 'agent_f4a8b2c6');
+        return isShared || (a.company_id || a.companyId) === queryComp || !a.company_id;
+      });
     }
     res.json(agents.map(formatAgent));
   });
 
   router.post(['/agents', '/v1/agents'], async (req, res) => {
     try {
-      const { id, name, protocol, company_id, companyId, config } = req.body;
-      const targetCompany = (req.user && !req.user.isSuperadmin)
-        ? (req.user.companyId || req.user.company_id || 'comp_geotekno')
-        : (company_id || companyId || 'comp_geotekno');
+      // Pembatasan Ketat: Hanya Superadmin yang boleh membuka port / gateway baru di server
+      if (!req.user || !req.user.isSuperadmin) {
+        return res.status(403).json({
+          error: 'Hanya Superadmin yang memiliki wewenang untuk membuka Port / Gateway TCP baru pada server.',
+          code: 'SUPERADMIN_ONLY'
+        });
+      }
+
+      const { id, name, protocol, company_id, companyId, config, port, host, decoders, decoderTemplate, decoderCode } = req.body;
+      const targetCompany = company_id || companyId || 'comp_geotekno';
 
       // Check agent quota for targetCompany
       const compInfo = await companyRepo.getCompanyById(targetCompany);
       if (compInfo && compInfo.maxAgents > 0) {
-        if (compInfo.agentCount >= compInfo.maxAgents && (!req.user || !req.user.isSuperadmin)) {
+        if (compInfo.agentCount >= compInfo.maxAgents) {
           return res.status(403).json({
-            error: `Batas kuota Connectivity Gateway untuk perusahaan '${compInfo.name}' telah tercapai (Maksimal ${compInfo.maxAgents} agent). Hubungi Superadmin untuk menambah kuota.`,
+            error: `Batas kuota Connectivity Gateway untuk perusahaan '${compInfo.name}' telah tercapai (Maksimal ${compInfo.maxAgents} agent).`,
             code: 'AGENT_QUOTA_EXCEEDED'
           });
         }
       }
 
-      // Host is permanently locked to 0.0.0.0 (internal server listener)
-      const safeConfig = config ? { ...config, host: '0.0.0.0' } : { host: '0.0.0.0' };
-      const created = await agentManager.createAgent({ id, name, protocol, company_id: targetCompany, config: safeConfig });
-      res.json({ success: true, agent: created.getStatus() });
+      // Merge config
+      const rawPort = (config && config.port) ? config.port : port;
+      const targetPort = rawPort ? Number(rawPort) : 20005;
+      const safeConfig = {
+        ...(config || {}),
+        host: '0.0.0.0',
+        port: targetPort,
+        decoders: (config && config.decoders) || decoders || ['NMEA2000'],
+        decoderTemplate: (config && config.decoderTemplate) || decoderTemplate || 'HYBRID',
+        decoderCode: (config && config.decoderCode) || decoderCode || '',
+      };
+
+      const finalProtocol = protocol || mapDecodersToProtocol(safeConfig.decoders);
+      const created = await agentManager.createAgent({ id, name, protocol: finalProtocol, company_id: targetCompany, config: safeConfig });
+      res.json({ success: true, agent: formatAgent(created.getStatus()), ...formatAgent(created.getStatus()) });
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
@@ -241,7 +267,12 @@ function createApiRouter() {
   // ==========================================
   router.get(['/monitoring/sections', '/v1/monitoring/sections'], async (req, res) => {
     try {
-      const sections = await sectionRepo.getAllSections();
+      const isSuper = !!(req.user && req.user.isSuperadmin);
+      const userCompId = req.user && !isSuper
+        ? (req.user.companyId || req.user.company_id || 'comp_geotekno')
+        : (req.query.company_id || req.query.companyId || (req.user ? (req.user.companyId || req.user.company_id) : 'comp_geotekno'));
+
+      const sections = await sectionRepo.getAllSections(userCompId, isSuper);
       res.json(sections);
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -250,8 +281,13 @@ function createApiRouter() {
 
   router.put(['/monitoring/sections', '/v1/monitoring/sections'], async (req, res) => {
     try {
-      const sections = req.body;
-      const updated = await sectionRepo.saveAllSections(sections);
+      const isSuper = !!(req.user && req.user.isSuperadmin);
+      const userCompId = req.user && !isSuper
+        ? (req.user.companyId || req.user.company_id || 'comp_geotekno')
+        : (req.body.company_id || req.body.companyId || req.query.company_id || (req.user ? req.user.companyId || req.user.company_id : 'comp_geotekno'));
+
+      const sections = Array.isArray(req.body) ? req.body : (req.body.sections || []);
+      const updated = await sectionRepo.saveAllSections(sections, userCompId);
       res.json(updated);
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -260,7 +296,12 @@ function createApiRouter() {
 
   router.post(['/monitoring/sections', '/v1/monitoring/sections'], async (req, res) => {
     try {
-      const created = await sectionRepo.upsertSection(req.body);
+      const isSuper = !!(req.user && req.user.isSuperadmin);
+      const userCompId = req.user && !isSuper
+        ? (req.user.companyId || req.user.company_id || 'comp_geotekno')
+        : (req.body.company_id || req.body.companyId || req.query.company_id || (req.user ? req.user.companyId || req.user.company_id : 'comp_geotekno'));
+
+      const created = await sectionRepo.upsertSection(req.body, userCompId);
       res.json(created);
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -269,7 +310,12 @@ function createApiRouter() {
 
   router.delete(['/monitoring/sections/:id', '/v1/monitoring/sections/:id'], async (req, res) => {
     try {
-      const result = await sectionRepo.deleteSection(req.params.id);
+      const isSuper = !!(req.user && req.user.isSuperadmin);
+      const userCompId = req.user && !isSuper
+        ? (req.user.companyId || req.user.company_id || 'comp_geotekno')
+        : null;
+
+      const result = await sectionRepo.deleteSection(req.params.id, userCompId);
       res.json(result);
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -391,26 +437,19 @@ function createApiRouter() {
     const lastDataMs = state && state.lastDataReceivedAt ? Number(state.lastDataReceivedAt) : null;
     const dataAgeSec = lastDataMs ? Math.max(0, (now - lastDataMs) / 1000) : null;
 
+    // Evaluasi status Online / Offline berdasarkan apakah ada data yang masuk ke kapal tersebut.
+    // Jika tidak ada data yang masuk selama > 5 menit (300 detik), status dianggap offline.
     let quality = 'offline';
     if (dataAgeSec !== null) {
-      if (dataAgeSec <= 90 && isConnected) {
-        // Data sangat segar (< 90s) dengan gateway TCP aktif
-        quality = 'live';
-      } else if (dataAgeSec <= 90) {
-        // Data baru masuk (< 90s) tapi soket TCP gateway sedang reconnecting
-        quality = 'delayed';
-      } else if (dataAgeSec <= 360) {
-        // Masuk akal dalam toleransi delay maritim & AIS kapal berlabuh (sampai 6 menit)
-        quality = 'delayed';
-      } else if (dataAgeSec <= 1800) {
-        // 6 - 30 menit: transmisi tertunda / high latency satellite polling
-        quality = 'stale';
+      if (dataAgeSec <= 90) {
+        quality = 'live'; // Data aktif masuk real-time (< 90 detik)
+      } else if (dataAgeSec <= 300) {
+        quality = 'delayed'; // Masih dalam batas toleransi online (< 5 menit)
       } else {
-        // Lebih dari 30 menit tanpa transmisi
-        quality = 'offline';
+        quality = 'offline'; // Melebihi 5 menit tanpa data -> OFFLINE
       }
     } else {
-      quality = isConnected ? 'delayed' : 'offline';
+      quality = 'offline';
     }
 
     let status = 'In Port';
@@ -646,6 +685,12 @@ function createApiRouter() {
   // --- V1 AGENTS CRUD & TEST ---
   router.post('/v1/agents', async (req, res) => {
     try {
+      if (!req.user || !req.user.isSuperadmin) {
+        return res.status(403).json({
+          error: 'Hanya Superadmin yang memiliki wewenang untuk membuka Port / Gateway TCP baru pada server.',
+          code: 'SUPERADMIN_ONLY'
+        });
+      }
       const { name, host = '0.0.0.0', port = 20005, decoders = ['NMEA2000'], decoderTemplate, decoderCode } = req.body;
       const protocol = mapDecodersToProtocol(decoders);
       const created = await agentManager.createAgent({
@@ -729,6 +774,12 @@ function createApiRouter() {
 
   router.delete('/v1/agents/:id', async (req, res) => {
     try {
+      if (!req.user || !req.user.isSuperadmin) {
+        return res.status(403).json({
+          error: 'Hanya Superadmin yang memiliki wewenang untuk menghapus Port / Gateway TCP.',
+          code: 'SUPERADMIN_ONLY'
+        });
+      }
       await agentManager.deleteAgent(req.params.id);
       res.json({ success: true });
     } catch (err) {
@@ -813,90 +864,51 @@ function createApiRouter() {
   // --- V1 TELEMETRY HISTORY / EXPORT ---
   router.get('/v1/telemetry/history', async (req, res) => {
     try {
-      const assetId = req.query.asset_id || req.query.vessel_id || null;
-      const assetIds = req.query.asset_ids || null;
+      let assetId = req.query.asset_id || req.query.vessel_id || null;
+      let assetIds = req.query.asset_ids || null;
       const from = req.query.from || null;
       const to = req.query.to || null;
       const limit = parseInt(req.query.limit || '200', 10);
       const offset = parseInt(req.query.offset || '0', 10);
 
-      const records = await getHistoricalTelemetryLogs({ assetId, assetIds, from, to, limit, offset });
-      
-      // Fallback: If DB query returns 0 rows (e.g. before persistent live stream frames recorded),
-      // synthesize realistic records from current vessel snapshot & tracks so the user can always preview & export
-      if (records.length === 0) {
-        let assets = assetManager.getAllAssets();
-        if (req.user && !req.user.isSuperadmin) {
-          const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
-          assets = assets.filter(a => (a.company_id || 'comp_geotekno') === userCompId);
-        }
-        let targetAsset = null;
+      // Multi-tenant check: Non-superadmin users can only query telemetry for assets belonging to their company
+      if (req.user && !req.user.isSuperadmin) {
+        const userCompId = req.user.companyId || req.user.company_id || 'comp_geotekno';
+        const companyAssets = assetManager.getAllAssets().filter(a => (a.company_id || 'comp_geotekno') === userCompId);
+        const validIds = new Set(companyAssets.map(a => a.id));
+
         if (assetId && assetId !== 'all') {
-          targetAsset = assetManager.getAsset(assetId) || assets[0];
+          if (!validIds.has(assetId)) {
+            return res.json({
+              total: 0,
+              records: [],
+              source: 'database',
+            });
+          }
         } else if (assetIds) {
-          const firstId = assetIds.split(',')[0]?.trim();
-          targetAsset = assetManager.getAsset(firstId) || assets[0];
+          const filtered = assetIds.split(',').map(s => s.trim()).filter(id => validIds.has(id));
+          if (filtered.length === 0) {
+            return res.json({
+              total: 0,
+              records: [],
+              source: 'database',
+            });
+          }
+          assetIds = filtered.join(',');
         } else {
-          targetAsset = assets[0];
+          // If no specific asset provided, query across all assets belonging to this company
+          if (companyAssets.length === 0) {
+            return res.json({
+              total: 0,
+              records: [],
+              source: 'database',
+            });
+          }
+          assetIds = companyAssets.map(a => a.id).join(',');
         }
-        const state = targetAsset ? targetAsset.state : null;
-        const snap = state && typeof state.getSnapshot === 'function' ? state.getSnapshot() : null;
-        const tracks = await getRecentTrack(limit || 60, targetAsset?.info?.id || null);
-
-        const pointCount = tracks && tracks.length > 0 ? tracks.length : 30;
-        const synthetic = Array.from({ length: pointCount }).map((_, idx) => {
-          const tp = tracks && tracks[idx] ? tracks[idx] : null;
-          const sampleIntervalMs = 15000;
-          const timeOffset = idx * sampleIntervalMs;
-          const tsUtc = tp?.timestamp_utc || tp?.recorded_at || new Date(Date.now() - timeOffset).toISOString();
-          
-          const lat = tp?.latitude ?? ((snap?.navigation?.latitude || -6.1754) + (Math.sin(idx * 0.15) * 0.003));
-          const lng = tp?.longitude ?? ((snap?.navigation?.longitude || 106.8272) + (Math.cos(idx * 0.15) * 0.003));
-          const sog = tp?.sog_knots ?? (snap?.navigation?.sog_knots || 12.4);
-          const cog = tp?.cog_deg ?? (snap?.navigation?.cog_deg || 85.0);
-          const heading = snap?.motion?.heading_deg ?? ((cog + 2) % 360);
-          const depth = snap?.environment?.depth_m ?? (18.5 - (idx * 0.1) % 4);
-          const windSpeed = snap?.environment?.wind_speed_kn ?? 14.2;
-          const windAngle = snap?.environment?.wind_angle_deg ?? 45;
-          const waterTemp = snap?.environment?.water_temp_c ?? 28.5;
-
-          return {
-            id: idx + 1,
-            asset_id: targetAsset?.info?.id || 'vessel_c2e2cffb',
-            timestamp_utc: tsUtc,
-            timestamp_local: new Date(tsUtc).toLocaleString('sv-SE').replace('T', ' '),
-            latitude: Number(Number(lat).toFixed(6)),
-            longitude: Number(Number(lng).toFixed(6)),
-            altitude_m: 2.1,
-            sog_knots: Number(Number(sog).toFixed(2)),
-            sog_kmh: Number((Number(sog) * 1.852).toFixed(2)),
-            cog_deg: Number(Number(cog).toFixed(1)),
-            satellites: 12,
-            hdop: 0.8,
-            gnss_fix: 'GNSS Fix (GPS)',
-            heading_deg: Number(Number(heading).toFixed(1)),
-            rot_deg_s: 0.1,
-            pitch_deg: 0.4,
-            roll_deg: -0.2,
-            depth_m: Number(Number(depth).toFixed(2)),
-            water_temp_c: Number(Number(waterTemp).toFixed(1)),
-            air_temp_c: 29.0,
-            wind_speed_kn: Number(Number(windSpeed).toFixed(1)),
-            wind_angle_deg: Number(Number(windAngle).toFixed(1)),
-            baro_pressure_hpa: 1012.8,
-            fuel_level: 82.5,
-            engine_rpm: 1450,
-            engine_load: 68.0,
-            battery_volts: 24.2,
-          };
-        });
-
-        return res.json({
-          total: synthetic.length,
-          records: synthetic,
-          source: 'active_telemetry_snapshot',
-        });
       }
+
+      const records = await getHistoricalTelemetryLogs({ assetId, assetIds, from, to, limit, offset });
 
       res.json({
         total: records.length,
@@ -1061,11 +1073,6 @@ function createApiRouter() {
 
       // Saring jika target adalah kapal sendiri
       if (ownMmsi && String(t.mmsi) === String(ownMmsi)) continue;
-      if (!ownMmsi && dist < 0.02) {
-        // Auto-assign own ship MMSI jika koordinat transponder berimpit
-        assetManager.updateOwnShipIdentifiers(asset.info.id, { mmsi: String(t.mmsi) });
-        continue;
-      }
 
       const brg = calculateBearingDeg(ownLat, ownLng, t.latitude, t.longitude);
       const aisClass = (t.ais_class === 'B' || (t.ais_type && t.ais_type.includes('B'))) ? 'B' : 'A';

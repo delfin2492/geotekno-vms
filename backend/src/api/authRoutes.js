@@ -452,10 +452,7 @@ function createAuthRouter() {
       if (Array.isArray(permissions) && req.user.isSuperadmin) {
         await setUserPermissions(newUser.id, permissions);
       }
-      if (Array.isArray(vessels)) {
-        await setUserVessels(newUser.id, vessels);
-      }
-
+      newUser.vessels = resolveUserVessels(newUser, targetSuperadmin);
       return res.status(201).json({ success: true, user: newUser });
     } catch (err) {
       console.error('[USER ERROR] Create user failed:', err);
@@ -530,12 +527,9 @@ function createAuthRouter() {
       if (Array.isArray(permissions) && req.user.isSuperadmin) {
         await setUserPermissions(id, permissions);
       }
-      if (Array.isArray(vessels)) {
-        await setUserVessels(id, vessels);
-      }
-
       const updatedPermissions = await getUserPermissions(id);
-      const updatedVessels = await getUserVessels(id);
+      const isSuper = !!updated.is_superadmin || updated.role_id === 'role_superadmin';
+      const updatedVessels = resolveUserVessels(updated, isSuper);
 
       return res.json({
         success: true,

@@ -11,12 +11,12 @@ import type {
   VesselDraft,
 } from "@/domain/types"
 
-import { getStoredToken } from "./authApi"
+import { getStoredToken, silentRefreshToken } from "./authApi"
 
 const BASE_URL = "/api/v1"
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const token = getStoredToken()
+  let token = getStoredToken()
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",
@@ -27,11 +27,24 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     headers["Authorization"] = `Bearer ${token}`
   }
 
-  const response = await fetch(`${BASE_URL}${endpoint}`, {
+  let response = await fetch(`${BASE_URL}${endpoint}`, {
     ...options,
     headers,
     credentials: "include",
   })
+
+  // Silent retry once on 401 (expired access token)
+  if (response.status === 401) {
+    const newToken = await silentRefreshToken()
+    if (newToken) {
+      headers["Authorization"] = `Bearer ${newToken}`
+      response = await fetch(`${BASE_URL}${endpoint}`, {
+        ...options,
+        headers,
+        credentials: "include",
+      })
+    }
+  }
 
   if (!response.ok) {
     let errMessage = `HTTP Error ${response.status}: ${response.statusText}`

@@ -154,6 +154,7 @@ export interface AssetAttribute {
   pgnSource?: string
   liveValue: string | number | null
   status: "live" | "stale" | "offline"
+  updatedAt?: string | null
 }
 
 export interface AssetAttributeDraft {

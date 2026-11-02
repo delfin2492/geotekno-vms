@@ -43,10 +43,9 @@ services:
       DB_NAME: navigation_db
       LOG_INTERVAL_SEC: 1.0
     ports:
-      - "20005:20005"   # Port TCP NMEA 2000 aktif untuk USR-CANET200
-      - "20006:20006"   # Port TCP NMEA 0183 RS485 Serial Gateway
-      - "2006:2006"     # Port TCP NMEA 0183 AquaMap RS485
-      - "8080:8080"     # Port HTTP API & WebSocket
+      - "20005-20020:20005-20020" # Hybrid TCP Gateway Ports (20005 Default CAN, 20006 Default NMEA, 20007-20020 Dedicated Ports)
+      - "2006:2006"               # Port TCP NMEA 0183 AquaMap RS485
+      - "8080:8080"               # Port HTTP API & WebSocket
     networks:
       - nav-net
 

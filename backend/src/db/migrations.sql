@@ -288,9 +288,7 @@ VALUES (
     TRUE,
     'role_superadmin'
 )
-ON CONFLICT (email) DO UPDATE SET 
-    name = EXCLUDED.name,
-    password_hash = EXCLUDED.password_hash,
+ON CONFLICT (id) DO UPDATE SET 
     is_superadmin = TRUE,
     is_active = TRUE,
     role_id = 'role_superadmin';

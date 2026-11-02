@@ -21,44 +21,75 @@
 
 **GeoTekno VMS** adalah platform operasional armada maritim (*fleet management & vessel monitoring*) generasi terbaru yang dirancang untuk memproses, memvisualisasikan, dan menganalisis data telemetri kapal secara *real-time*.
 
-Platform ini terhubung langsung dengan perangkat keras gateway di kapal (**USR-CANET200** dan modul **RS-485 / Serial Edge**) yang menangkap sinyal instrumen navigasi dan mesin kapal berbasis protokol standar internasional:
-- **NMEA 2000 (CAN Bus / ISO-TP / Fast-Packet)**
-- **NMEA 0183 (Serial RS-422 / RS-485)**
-- **Sensor Analog & Digital Mesin Kapal**
+Platform ini terhubung langsung dengan perangkat keras gateway di atas kapal (**USR-CANET200** dan modul serial) yang menangkap sinyal instrumen navigasi, transduser bawah air, dan sensor cuaca maritim berbasis protokol standar internasional:
+- **NMEA 2000 (CAN Bus 2.0B / SAE J1939 - 250 Kbps)**
+- **NMEA 0183 (Serial RS-422 / RS-232 - 4800 / 38400 bps)**
 
-Platform menyediakan *dashboard digital twin* presisi tinggi, peta navigasi laut interaktif dengan data batimetri dan jalur pelayaran, terminal diagnostik paket data mentah, serta sistem ekspor riwayat telemetri untuk kebutuhan pelaporan dan audit operasional kapal.
+Platform menyediakan *dashboard digital twin* presisi tinggi, peta navigasi laut interaktif dengan data batimetri dan alur pelayaran, terminal diagnostik paket data mentah, serta sistem ekspor riwayat telemetri untuk kebutuhan pelaporan operasional dan audit maritim.
 
 ---
 
-## 🏗️ Arsitektur Sistem
+## 🏗️ Topologi dan Arsitektur Aliran Data
 
-```mermaid
-graph TD
-    subgraph Kapal [Instrumen & Sensor Kapal]
-        GPS[GPS Receiver / Compass] -->|NMEA 0183| USR[USR-CANET200 Gateway]
-        Echo[Echo Sounder / Depth] -->|NMEA 0183 / N2K| USR
-        Engine[Engine Sensors / RPM / Temp / Fuel] -->|J1939 / CAN Bus| USR
-        Wind[Anemometer / Wind Sensor] -->|NMEA 0183| USR
-    end
+Aliran data telemetri mengalir dari sensor kapal menuju server cloud melalui pipeline berlapis:
 
-    subgraph Jaringan [Konektivitas Laut ke Darat]
-        USR -->|TCP Stream Port 20005 & 20006| Internet((Satelit / 4G GSM Maritim))
-    end
+<div align="center">
 
-    subgraph Server [GeoTekno VMS Backend & Storage]
-        Internet --> TCP[Node.js TCP Socket Ingestion Server]
-        TCP --> Parser[CAN & NMEA Decoder Pipeline]
-        Parser --> State[In-Memory Vessel State & Stream Buffer]
-        Parser --> DB[(PostgreSQL 16 + PostGIS)]
-        State --> WS[WebSocket Server]
-        State --> API[REST API Engine / JWT Auth]
-    end
+![Arsitektur Sistem VMS](doc/arsitektur_sistem_vms.png)
 
-    subgraph Client [Antarmuka Web GeoTekno VMS]
-        WS --> UI[React 18 + Vite SPA Client]
-        API --> UI
-    end
-```
+*Gambar 1: Diagram Arsitektur Aliran Data Telemetri Maritim dari Sensor Kapal Menuju Dashboard Cloud VMS.*
+
+</div>
+
+### Alur Kerja Sistem (Data Pipeline):
+1. **Instrumen & Sensor Kapal**:
+   - **Backbone NMEA 2000 (CAN Bus)**: GPS Antenna, Gyrocompass, Transduser Sonar/Echosounder, dan Anemometer Wind Sensor memancarkan paket data biner 250 Kbps.
+   - **Jalur NMEA 0183 (Serial)**: Perangkat display navigasi dan transponder AIS memancarkan kalimat teks ASCII standar.
+2. **Gateway USR-CANET200 (Mode TCP Client)**:
+   - Mengonversi frame CAN menjadi **Paket Biner Transparan 13-Byte**.
+   - Bekerja sebagai *TCP Client* yang aktif membuka soket koneksi menuju alamat IP server VMS di cloud.
+   - Mengirimkan string **Register Content (Identity Packet)** (misal: `"KM_Uno"`) sebagai identitas unik kapal saat pertama kali tersambung, serta paket **Heartbeat** berkala (30 detik).
+3. **Router Internet Kapal (Starlink / VSAT / Seluler 4G)**:
+   - Bertindak sebagai gerbang *uplink* telekomunikasi kapal ke darat. Menggunakan NAT dan IP privat lokal, mengeliminasi kebutuhan IP publik statis yang mahal pada kapal.
+4. **Jaringan Internet TCP/IP**:
+   - Paket data diteruskan melalui internet publik menuju server cloud pada port tujuan:
+     - **Port 20005**: Aliran data biner NMEA 2000 (CAN).
+     - **Port 20006**: Aliran kalimat teks ASCII NMEA 0183 (Serial).
+5. **Backend Server Ingestion & Database Cloud**:
+   - Node.js Ingestion Server memvalidasi identitas kapal (*asset binding*), membedah paket biner 13-byte / kalimat ASCII, dan menyimpan log telemetri ke basis data spasial **PostgreSQL 16 + PostGIS**.
+6. **Web Dashboard Monitoring & Digital Twin**:
+   - Data disiarkan seketika via **WebSocket** ke antarmuka web pengguna (*React 18 + Vite SPA*) untuk animasi widget instrumen 60 FPS dan visualisasi posisi kapal pada peta laut.
+
+---
+
+## 📚 Buku Panduan & Dokumentasi Rekayasa (Folder `doc/`)
+
+Repositori ini dilengkapi dengan dokumentasi resmi berstandar akademik dan industri yang terbagi berdasarkan kebutuhan pengguna:
+
+| Dokumen | Format | Target Pengguna | Deskripsi Isi Dokumen |
+| :--- | :---: | :--- | :--- |
+| **[`User Guide.docx`](doc/User%20Guide.docx)** | `.docx` | Tim Manajemen & Engineer | **Buku Panduan Lengkap Sistem VMS**: Format standar skripsi akademik, mengulas arsitektur sistem, format data NMEA 2000, NMEA 0183, konfigurasi CAN-to-TCP, dan integrasi Register Content. |
+| **[`Panduan_Teknisi_Lapangan.docx`](doc/Panduan_Teknisi_Lapangan.docx)** | `.docx` | Teknisi Lapangan (*Field Tech*) | **SOP Praktis Instalasi & Konfigurasi Kapal**: Checklist alat kerja, panduan konfigurasi Web GUI USR-CANET200 (Baud rate 250 Kbps, Time trigger 10 ms, TCP Client), pengisian Identity Packet, status lampu LED diagnostik, uji ping, dan matriks pemecahan masalah (*troubleshooting*). |
+| **[`Spesifikasi_Integrasi_Programmer.docx`](doc/Spesifikasi_Integrasi_Programmer.docx)** | `.docx` | Tim Software Engineer (*Backend/DevOps*) | **Spesifikasi Rekayasa Integrasi & Parsing**: Protokol biner 13-Byte, rumus bit-masking PGN 29-bit, kamus PGN (Navigasi, Transduser, Wind), pemetaan kalimat NMEA 0183 (Tabel 5.1), validasi Checksum XOR, skema DDL PostgreSQL/PostGIS, dan contoh implementasi kode parser Node.js. |
+| **[`arsitektur_sistem_vms.png`](doc/arsitektur_sistem_vms.png)** | `.png` | Semua Stakeholder | Diagram arsitektur visual resmi resolusi tinggi 300 DPI. |
+
+---
+
+## 📡 Kamus Telemetri yang Didukung (Navigasi, Transduser & Wind)
+
+Platform VMS memproses parameter telemetri kapal secara terpadu melalui pemetaan setara antara PGN NMEA 2000 dan Kalimat NMEA 0183:
+
+| Parameter Maritim | PGN NMEA 2000 | Kalimat NMEA 0183 | Formula Konversi / Scaling | Satuan Metrik Output |
+| :--- | :---: | :---: | :--- | :--- |
+| **Kedalaman Air (*Water Depth*)** | `128267` | `$SDDPT`, `$SDDBT` | `uint32 LE x 0.01` (Offset lunas kapal) | Meter (m) |
+| **Suhu Air Laut (*Water Temp*)** | `130310` | `$SDMTW` | `(uint16 LE x 0.01) - 273.15` | Derajat Celsius (°C) |
+| **Haluan Kompas (*Vessel Heading*)** | `127250` | `$HCHDT`, `$HCHDG` | `uint16 LE x 0.0001 x (180/π)` | Derajat ($0^\circ - 360^\circ$) |
+| **Posisi Lintang & Bujur (GPS)** | `129025` | `$GPGLL`, `$GPRMC` | `int32 LE x 1e-7` (WGS84 Lat/Lon) | Derajat Desimal |
+| **Arah & Laju Kapal (COG & SOG)** | `129026` | `$GPVTG`, `$GPRMC` | `SOG x 0.01 m/s (knot), COG x 0.0001 rad` | Knot & Derajat True |
+| **Detail Sinyal GNSS & Elevasi** | `129029` | `$GPGGA` | Status Fix, Jumlah Satelit, HDOP, Alt | Presisi Geografis |
+| **Waktu & Tanggal Sistem UTC** | `126992` | `$GPZDA`, `$GPRMC` | Jam atomik satelit GPS | Waktu Kalender UTC |
+| **Kecepatan & Sudut Angin (*Wind*)** | `130306` | `$WIMWV` | `Speed x 0.01 m/s (knot), Dir x 0.0001 rad` | Knot & Sudut Relatif/True |
+| **Target Navigasi AIS** | `129038` | `!AIVDM` | MMSI, SOG, COG, Posisi Kapal Lain | Objek Target Maritim |
 
 ---
 
@@ -67,57 +98,41 @@ graph TD
 ### 1. 📊 Operations Overview (Command Center)
 - **Ringkasan Operasional Utama**: Menampilkan metrik armada secara cepat (jumlah kapal aktif, kecepatan rata-rata armada, status gateway kapal, dan peringatan aktif).
 - **Snapshot Peta Cepat**: Tinjauan posisi geografis seluruh kapal secara langsung pada peta satelit/nautika.
-- **Kartu Telemetri Prioritas**: Widget ringkas status mesin, posisi koordinat GPS, heading kompas, kedalaman laut terkini, dan kecepatan kapal (SOG).
+- **Kartu Telemetri Prioritas**: Widget ringkas status instrumen, koordinat GPS, haluan kompas, kedalaman laut terkini, dan kecepatan kapal (SOG).
 - **Status Konektivitas Real-Time**: Indikator status platform (*Platform Online*, koneksi TCP stream aktif, dan frame rate telemetri).
 
----
-
 ### 2. 🗺️ Live Marine Traffic (Peta Navigasi Laut Interaktif)
-- **Peta Berbasis OpenMapTiles Marine Navigation**: Tampilan peta laut beresolusi tinggi dengan garis kontur kedalaman laut (*bathymetry*), alur pelayaran resmi (*shipping lanes/fairways*), zona terlarang, pelabuhan, dan rambu navigasi.
+- **Peta Berbasis OpenMapTiles Marine Navigation**: Tampilan peta laut beresolusi tinggi dengan garis kontur kedalaman laut (*bathymetry*), alur pelayaran resmi (*shipping lanes*), zona terlarang, pelabuhan, dan rambu navigasi.
 - **Pelacakan Posisi Kapal Sendiri (Own Ship Tracking)**:
   - Vektor arah haluan kapal (*Heading vector* & *Course Over Ground / COG*) yang akurat.
   - Penandaan kapal (*own ship icon*) dengan orientasi sudut derajat real-time.
   - Jejak riwayat lintasan pelayaran (*Voyage Breadcrumb Track*) dengan interpolasi titik waktu.
-- **Monitoring Target AIS Regional**: Pemantauan kapal sekitar dengan pewarnaan kategori tipe kapal standar internasional (Cargo, Tanker, Passenger, Tug/Special, Fishing).
+- **Monitoring Target AIS Regional**: Pemantauan kapal sekitar dengan pewarnaan kategori tipe kapal standar internasional (Cargo, Tanker, Passenger, Tug, Fishing).
 - **Tema Peta Kustom**: Pilihan gaya peta *Nautical S-57 / Bright*, *Dark Mode Tactical*, dan *Satellite View*.
-- **Informasi Cuaca Laut**: Pemantauan arah dan kecepatan angin lokal di koordinat kapal.
-
----
 
 ### 3. 🚢 Vessel Assets Management (Manajemen Aset Kapal)
 - **Registrasi & Direktori Kapal**: Inventarisasi lengkap armada kapal mencakup Nama Kapal, Nomor IMO, MMSI, Call Sign, dan Tipe Kapal.
-- **Asosiasi Gateway Perangkat Keras**: Pemetaan aset kapal terhadap ID Agent TCP Gateway yang terpasang di fisik kapal.
-- **Manajemen Sensor & Atribut**: Konfigurasi parameter sensor aktif untuk tiap kapal (RPM Mesin, Tekanan Oli, Suhu Pendingin, Kedalaman, Tegangan Aki, Bahan Bakar, dll.).
-- **Pencarian & Penyaringan Cepat**: Filter berdasarkan status operasional (*Underway, In Port, Anchored, Maintenance*).
-
----
+- **Asosiasi Gateway Perangkat Keras**: Pemetaan aset kapal terhadap ID Agent TCP Gateway / Register Content (`KM_Uno`, dll.).
+- **Manajemen Sensor & Atribut**: Konfigurasi parameter sensor aktif untuk tiap kapal (GPS, Echosounder Depth, Gyrocompass, Wind Anemometer, Suhu Air).
 
 ### 4. 📈 Monitoring (Digital Twin & Telemetry Widgets)
 - **Desain Gauge & Indikator Presisi**:
-  - **Depth Sounder Widget**: Visualisasi kedalaman air bawah lunas (*depth below transducer*) dengan palet warna air laut gradien dinamis dan indikator dasar laut.
-  - **Analog & Digital Gauges**: Indikator tachometer RPM mesin, kecepatan kapal (SOG dalam knot), sudut kemudi (Rudder Angle), dan kompas haluan (*Compass Rose Heading*).
-  - **Bar & Meter Status**: Pengukur tingkat bahan bakar (Fuel Tank), suhu oli mesin, tekanan pelumasan, dan tegangan aki sistem navigasi.
+  - **Depth Column Widget**: Visualisasi kedalaman air bawah lunas (*depth below transducer*) dengan palet warna air laut gradien dinamis dan indikator dasar laut.
+  - **Analog & Digital Gauges**: Indikator kecepatan kapal (SOG dalam knot) dan kompas haluan (*Compass Rose Heading*).
+  - **Wind Gauge**: Widget penunjuk kecepatan dan arah datang angin laut.
 - **Kustomisasi Layout Dashboard**: Pengguna dapat mengatur urutan widget, mengubah ukuran grid, serta menyesuaikan indikator yang ditampilkan sesuai kebutuhan pengawasan operasional kapal.
-- **Grafik Tren Telemetri**: Grafik garis riwayat real-time untuk mendeteksi fluktuasi anomali nilai sensor secara dini.
-
----
 
 ### 5. 📡 Live Logs (Terminal Diagnostik TCP Gateway)
 - **Inspeksi Paket Data Mentah**: Menampilkan aliran frame data asli yang diterima dari port TCP hardware secara live tanpa modifikasi.
 - **Multi-Protocol Decoder**:
-  - **NMEA 2000 (CAN bus)**: Menampilkan raw CAN ID, byte payload (contoh: `18F11234 8 1A 4F 09 2D 10 00 7B C2`), PGN decoder (Engine, Depth, Position), dan status frame.
-  - **NMEA 0183 (Serial)**: Menampilkan kalimat NMEA baku (seperti `$GPRMC`, `$GPGGA`, `$SDDBT`, `$VWMTW`, dll.) beserta status checksum.
-- **Filter Diagnostik Tingkat Lanjut**: Filter berdasarkan nama kapal, ID agen gateway, decoder yang digunakan, level severity (*Info, Warning, Error*), dan pencarian kata kunci pada payload.
-- **Payload Inspector Modal**: Klik detail paket untuk melihat hasil penguraian field data biner secara komprehensif.
-
----
+  - **NMEA 2000 (CAN bus)**: Menampilkan raw CAN ID, paket biner 13-byte, ekstraksi PGN (Depth, Position, Heading, Wind), dan status frame.
+  - **NMEA 0183 (Serial)**: Menampilkan kalimat NMEA baku (seperti `$GPRMC`, `$GPGGA`, `$SDDPT`, `$SDMTW`, `$WIMWV`, dll.) beserta status checksum.
+- **Filter Diagnostik Tingkat Lanjut**: Filter berdasarkan nama kapal, ID agen gateway, decoder, level severity, dan pencarian kata kunci pada payload.
 
 ### 6. 📥 Data Export (Ekspor Riwayat Telemetri)
 - **Ekspor Berbasis Waktu**: Pemilihan rentang tanggal dan jam pengambilan data riwayat telemetri (*from date/time* hingga *to date/time*).
-- **Atribut Terdaftar Dinamis**: Pilihan *Telemetry Attributes* menyesuaikan dengan sensor yang secara nyata terpasang dan terdaftar pada kapal yang dipilih.
-- **Dukungan Format Standar**: Ekspor instan ke format **CSV** dan **JSON** untuk kebutuhan audit, analisis logistik bahan bakar, verifikasi rute, atau pelaporan regulator maritim.
-
----
+- **Atribut Terdaftar Dinamis**: Pilihan *Telemetry Attributes* menyesuaikan dengan sensor yang terdaftar pada kapal yang dipilih.
+- **Dukungan Format Standar**: Ekspor instan ke format **CSV** dan **JSON** untuk kebutuhan audit rute, verifikasi pelayaran, atau pelaporan regulator maritim.
 
 ### 7. 🔐 User Management & Role-Based Access Control (RBAC)
 - **Sistem Peran Fleksibel**:
@@ -131,13 +146,13 @@ graph TD
 
 ## ⚙️ Spesifikasi Protokol & Port Konektivitas
 
-| Layanan / Protokol | Port Default | Deskripsi |
-| :--- | :--- | :--- |
+| Layanan / Protokol | Port Default | Deskripsi Layanan |
+| :--- | :---: | :--- |
 | **Frontend Web Console** | `3000` | Antarmuka web pengguna Nginx + React SPA |
 | **Backend API & WebSocket** | `8080` | Endpoint REST API HTTP dan WebSocket stream server |
-| **TCP Agent Gateway (Hybrid CAN/RS485)** | `20005` | Port penerimaan aliran TCP soket untuk USR-CANET200 (CAN & Serial) |
-| **TCP Agent Gateway (RS-485 NMEA0183)** | `20006` | Port penerimaan aliran TCP soket untuk Serial Edge NMEA 0183 |
-| **Database PostgreSQL + PostGIS** | `5432` | Penyimpanan persisten data spasial, akun, dan time-series |
+| **TCP Ingestion (NMEA 2000 CAN)** | `20005` | Port penerimaan aliran TCP paket biner 13-Byte USR-CANET200 (CAN1) |
+| **TCP Ingestion (NMEA 0183 Serial)** | `20006` | Port penerimaan aliran TCP teks ASCII kalimat serial NMEA 0183 |
+| **Database PostgreSQL + PostGIS** | `5432` | Penyimpanan persisten data spasial, akun, dan time-series telemetri |
 
 ---
 
@@ -162,7 +177,7 @@ docker compose up -d --build
 
 Docker akan mengompilasi dan mengaktifkan 3 kontainer utama:
 1. `nav_postgres`: PostgreSQL 16 dengan ekstensi spasial PostGIS.
-2. `nav_backend`: Node.js API, parser biner telemetri, dan TCP Gateway listener.
+2. `nav_backend`: Node.js API, parser biner telemetri, dan TCP Ingestion listener.
 3. `nav_frontend`: Nginx web server menyajikan React TypeScript build.
 
 ### 3. Akses Platform Web
@@ -183,7 +198,7 @@ http://localhost:3000
 ```
 geotekno-vms/
 ├── docker-compose.yml          # Konfigurasi orkestrasi container Docker
-├── .gitignore                  # Filter berkas Git
+├── .gitignore                  # Filter berkas Git (termasuk lock file Office)
 ├── README.md                   # Dokumentasi resmi proyek
 │
 ├── backend/                    # Layanan Backend & TCP Gateway (Node.js)
@@ -218,9 +233,17 @@ geotekno-vms/
 │       ├── services/           # HTTP API client & WebSocket connector
 │       └── state/              # AuthProvider & FleetProvider state management
 │
-└── doc/                        # Panduan teknis perangkat keras & manual navigasi
-    ├── USR-CANET200-User-Manual_V1.0.4.01.pdf
-    └── ECHOMAP_UHD2_Install_ID-ID.pdf
+└── doc/                        # Panduan teknis & spesifikasi rekayasa sistem
+    ├── arsitektur_sistem_vms.png               # Diagram visual arsitektur sistem
+    ├── User Guide.docx                         # Buku Panduan Lengkap Sistem VMS
+    ├── Panduan_Teknisi_Lapangan.docx           # SOP Panduan Praktis Teknisi Lapangan
+    ├── Spesifikasi_Integrasi_Programmer.docx   # Spesifikasi Teknis Integrasi Software
+    ├── generate_architecture_diagram.py        # Generator diagram visual arsitektur
+    ├── generate_user_guide_docx.py             # Generator User Guide lengkap
+    ├── generate_technician_guide.py            # Generator panduan teknisi lapangan
+    ├── generate_programmer_guide.py            # Generator spesifikasi programmer
+    ├── USR-CANET200-User-Manual_V1.0.4.01.pdf  # Manual resmi pabrikan USR
+    └── ECHOMAP_UHD2_Install_ID-ID.pdf          # Manual Garmin ECHOMAP UHD2
 ```
 
 ---

@@ -32,9 +32,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshProfile = useCallback(async () => {
     const token = getStoredToken()
     if (!token) {
-      setUser(null)
-      setLoading(false)
-      return
+      // Attempt silent refresh first if browser has valid refresh cookie
+      const refreshedToken = await authApi.refreshToken()
+      if (!refreshedToken) {
+        setUser(null)
+        setLoading(false)
+        return
+      }
     }
 
     try {
@@ -54,6 +58,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     refreshProfile()
   }, [refreshProfile])
+
+  // Periodic background refresh every 10 minutes (token expires at 15m)
+  useEffect(() => {
+    if (!user) return
+
+    const interval = setInterval(async () => {
+      try {
+        const refreshedToken = await authApi.refreshToken()
+        if (refreshedToken) {
+          console.debug("[Auth] Background token auto-refreshed successfully")
+        }
+      } catch (err) {
+        console.warn("[Auth] Background refresh warning:", err)
+      }
+    }, 10 * 60 * 1000) // 10 minutes
+
+    return () => clearInterval(interval)
+  }, [user])
 
   const login = async (credentials: { email: string; password: string }) => {
     const res = await authApi.login(credentials)
@@ -104,29 +126,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (vesselId: string): boolean => {
       if (!user) return false
       if (user.isSuperadmin) return true
+      if (!vesselId || vesselId.trim() === "") return true
       if (user.vessels?.includes("*") && user.isSuperadmin) return true
+      // Multi-tenant check: user can only access vessels belonging to their organization
       return !!user.vessels?.includes(vesselId)
     },
     [user]
   )
 
   const canAccessSection = useCallback(
-    (sectionId: string, action: "read" | "write" = "read"): boolean => {
+    (_sectionId: string, action: "read" | "write" = "read"): boolean => {
       if (!user) return false
       if (user.isSuperadmin) return true
-
-      const sectionsPerm = user.permissions?.sections
-      // If no section permissions configured at all on this role, default allow for backwards compatibility
-      if (!sectionsPerm || Object.keys(sectionsPerm).length === 0) return true
-
-      // Exact match or wildcard '*' match
-      const sectionPerm = sectionsPerm[sectionId] || sectionsPerm["*"]
-      if (!sectionPerm) return false
-
-      if (action === "write") return !!sectionPerm.write
-      return !!sectionPerm.read
+      // Section access is directly governed by Page Access Permission for "monitoring"
+      return canAccessPage("monitoring", action)
     },
-    [user]
+    [user, canAccessPage]
   )
 
   return (

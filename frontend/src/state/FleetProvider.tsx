@@ -142,6 +142,112 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // 1b. Real-time zero-delay WebSocket stream listener (Loss Mode / Per-Frame Instant Update)
+  useEffect(() => {
+    let ws: WebSocket | null = null
+    let reconnectTimer: any = null
+    let isMounted = true
+
+    function connect() {
+      if (!isMounted) return
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+      const host = window.location.hostname
+      // In dev mode (port 5173), backend is on 8080. In production docker, nginx proxies /ws on same host:port
+      const isDevDirect = window.location.port === "5173"
+      const wsUrl = isDevDirect
+        ? `${protocol}//${host}:8080/ws`
+        : `${protocol}//${window.location.host}/ws`
+
+      try {
+        ws = new WebSocket(wsUrl)
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data)
+            if (msg.type === "telemetry" && msg.asset_id) {
+              const u = msg.vessel_update
+              if (u) {
+                setVessels((prev) =>
+                  prev.map((v) => {
+                    if (v.id === msg.asset_id) {
+                      const updated = { ...v }
+                      if (u.depth !== undefined) updated.depth = u.depth
+                      if (u.waterTemp !== undefined) updated.waterTemp = u.waterTemp
+                      if (u.sog !== undefined) updated.sog = u.sog
+                      if (u.cog !== undefined) updated.cog = u.cog
+                      if (u.heading !== undefined) updated.heading = u.heading
+                      if (u.pitch !== undefined) updated.pitch = u.pitch
+                      if (u.roll !== undefined) updated.roll = u.roll
+                      if (u.rpm !== undefined) updated.rpm = u.rpm
+                      if (u.batteryVolts !== undefined) updated.batteryVolts = u.batteryVolts
+                      if (u.position) updated.position = u.position
+                      if (u.customAttributes) {
+                        updated.customAttributes = {
+                          ...(updated.customAttributes || {}),
+                          ...u.customAttributes,
+                        }
+                      }
+                      if (u.quality) {
+                        updated.quality = u.quality
+                      }
+                      if (u.status) {
+                        updated.status = u.status
+                      }
+                      if (u.updatedAt) {
+                        updated.updatedAt = u.updatedAt
+                      }
+                      return updated
+                    }
+                    return v
+                  })
+                )
+              }
+            } else if (msg.type === "stream_logs" && Array.isArray(msg.logs)) {
+              const formattedLogs: RawLog[] = msg.logs.map((item: any) => {
+                const dec = item.decoded
+                const summaryText = dec && typeof dec === "object"
+                  ? Object.keys(dec)
+                      .slice(0, 3)
+                      .map((k) => `${k}: ${dec[k]}`)
+                      .join(", ")
+                  : `${item.type || item.protocol || "DATA"} packet on port ${item.port || 20005}`
+
+                return {
+                  id: String(item.id || Math.random()),
+                  timestamp: item.timestamp
+                    ? new Date(item.timestamp).toISOString()
+                    : new Date().toISOString(),
+                  vesselId: item.vessel_id || "vessel_96254061",
+                  agentId: item.agent_id || "agent_7a3d9b1e",
+                  decoder: item.protocol === "NMEA2000" ? "NMEA2000" : "NMEA0183",
+                  severity: item.category === "CRITICAL" ? "error" : (item.category === "WARNING" ? "warning" : "info"),
+                  payload: typeof item.raw === "string" ? item.raw : JSON.stringify(item.raw || {}),
+                  summary: summaryText,
+                }
+              })
+              setLogs((prev) => [...formattedLogs.reverse(), ...prev].slice(0, 300))
+            }
+          } catch {}
+        }
+        ws.onclose = () => {
+          if (isMounted) {
+            reconnectTimer = setTimeout(connect, 2000)
+          }
+        }
+        ws.onerror = () => {
+          try { ws?.close() } catch {}
+        }
+      } catch {}
+    }
+
+    connect()
+
+    return () => {
+      isMounted = false
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      try { ws?.close() } catch {}
+    }
+  }, [])
+
   // 2. Real-time Background Polling from Backend API (Port 20005 live telemetry)
   useEffect(() => {
     let isMounted = true
@@ -203,18 +309,20 @@ export function FleetProvider({ children }: { children: ReactNode }) {
 
   const permittedVessels = useMemo(() => {
     if (isSuperadmin) return vessels
-    // Multi-tenant isolation: strictly only return vessels of user's company
-    const myCompanyVessels = vessels.filter((v) => {
+    // Multi-tenant isolation: all users in a tenant access all vessels of that tenant
+    return vessels.filter((v) => {
       const vComp = v.companyId || (v as any).company_id || "comp_geotekno"
       return vComp === userCompanyId
     })
-    if (isCompanyAdmin) return myCompanyVessels
-    return myCompanyVessels.filter((v) => canAccessVessel(v.id))
-  }, [vessels, canAccessVessel, isSuperadmin, isCompanyAdmin, userCompanyId])
+  }, [vessels, isSuperadmin, userCompanyId])
 
   const permittedAgents = useMemo(() => {
     if (isSuperadmin) return agents
     return agents.filter((a) => {
+      const port = (a as any).port || (a as any).config?.port
+      const isSharedGateway = port === 20005 || port === 20006 || a.id === "agent_7a3d9b1e" || a.id === "agent_f4a8b2c6"
+      if (isSharedGateway) return true
+
       const aComp = a.companyId || (a as any).company_id
       return !aComp || aComp === userCompanyId
     })

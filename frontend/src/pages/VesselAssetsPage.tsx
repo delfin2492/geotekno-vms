@@ -638,11 +638,8 @@ export function VesselAssetsPage() {
         {/* Vessel List */}
         <div className="flex-1 overflow-y-auto p-2">
           {filteredVessels.map((vessel) => {
-            const online = agents.some(
-              (agent) =>
-                vessel.agentIds.includes(agent.id) &&
-                agent.status === "connected",
-            )
+            // Status ONLINE / OFFLINE murni berdasarkan apakah ada data yang masuk (quality !== 'offline')
+            const online = vessel.quality === "live" || vessel.quality === "delayed"
             const isSelected = selected?.id === vessel.id
             return (
               <button
@@ -668,9 +665,9 @@ export function VesselAssetsPage() {
                         {vessel.name}
                       </span>
                       <span
-                        className={`h-2 w-2 shrink-0 rounded-full ${online ? "bg-emerald-500" : "bg-red-400"
+                        className={`h-2 w-2 shrink-0 rounded-full ${online ? "bg-emerald-500" : "bg-slate-300"
                           }`}
-                        title={online ? "Connected" : "Offline"}
+                        title={online ? "Online (Data Aktif)" : "Offline (Tidak ada data)"}
                       />
                     </div>
                     <div className="mt-0.5 text-[10px] text-slate-400">
@@ -682,7 +679,7 @@ export function VesselAssetsPage() {
                         className={`font-bold ${online ? "text-emerald-600" : "text-slate-400"
                           }`}
                       >
-                        {online ? "CONNECTED" : "OFFLINE"}
+                        {online ? "ONLINE" : "OFFLINE"}
                       </span>
                       <span className="text-slate-400 font-medium">
                         {(vessel.sog ?? 0).toFixed(1)} kn • {Math.round(vessel.heading ?? 0)}°
@@ -957,20 +954,21 @@ export function VesselAssetsPage() {
 
                               <div className="flex items-center justify-between border-t border-slate-200/50 pt-1.5 text-[8px]">
                                 <span
-                                  className="truncate font-mono text-slate-400 max-w-[100px]"
+                                  className="truncate font-mono text-slate-400 max-w-[90px]"
                                   title={attr.pointingSource || attr.pgnSource || "Agent Feed"}
                                 >
                                   {attr.pointingSource || attr.pgnSource || "Agent Feed"}
                                 </span>
                                 <span
-                                  className={`flex items-center gap-1 font-bold ${isLive ? "text-emerald-600" : hasVal ? "text-amber-600" : "text-slate-400"
+                                  className={`flex items-center gap-1 font-bold ${isLive ? "text-emerald-600" : hasVal ? "text-slate-500" : "text-slate-400"
                                     }`}
+                                  title={attr.updatedAt ? `Update: ${formatDateTime(attr.updatedAt)}` : undefined}
                                 >
                                   <span
                                     className={`h-1.5 w-1.5 rounded-full ${isLive ? "bg-emerald-500 animate-pulse" : hasVal ? "bg-amber-400" : "bg-slate-300"
                                       }`}
                                   />
-                                  {isLive ? "LIVE" : hasVal ? "LAST KNOWN" : "OFFLINE"}
+                                  {isLive ? "LIVE" : hasVal ? (attr.updatedAt ? formatDateTime(attr.updatedAt) : "OFFLINE") : "OFFLINE"}
                                 </span>
                               </div>
                             </div>
@@ -1168,64 +1166,112 @@ export function VesselAssetsPage() {
                     <div className="space-y-2.5">
                       {agents
                         .filter((agent) => selected.agentIds.includes(agent.id))
-                        .map((agent) => (
-                          <div
-                            key={agent.id}
-                            className="rounded-lg border border-slate-200 bg-slate-50/60 p-3"
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <Server className="h-4 w-4 text-blue-600" />
-                                <span className="text-xs font-bold text-slate-800">
-                                  {agent.name}
+                        .map((agent) => {
+                          const isShared = agent.port === 20005 || agent.port === 20006 || agent.id === 'agent_7a3d9b1e' || agent.id === 'agent_f4a8b2c6';
+                          return (
+                            <div
+                              key={agent.id}
+                              className={`rounded-lg border p-3 ${isShared ? "border-emerald-200 bg-emerald-50/40" : "border-slate-200 bg-slate-50/60"}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  {isShared ? (
+                                    <Radio className="h-4 w-4 text-emerald-600 animate-pulse" />
+                                  ) : (
+                                    <Server className="h-4 w-4 text-blue-600" />
+                                  )}
+                                  <span className="text-xs font-bold text-slate-800">
+                                    {agent.name}
+                                  </span>
+                                  {isShared && (
+                                    <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">
+                                      Default Shared Gateway
+                                    </span>
+                                  )}
+                                </div>
+                                <StatusBadge status={agent.status} />
+                              </div>
+                              <div className="mt-2 flex items-center justify-between font-mono text-[10px] text-slate-500">
+                                <span>
+                                  tcp://{agent.host}:{agent.port}
                                 </span>
+                                <span>{agent.packetsPerMinute} pkt/min</span>
                               </div>
-                              <StatusBadge status={agent.status} />
-                            </div>
-                            <div className="mt-2 flex items-center justify-between font-mono text-[10px] text-slate-500">
-                              <span>
-                                tcp://{agent.host}:{agent.port}
-                              </span>
-                              <span>{agent.packetsPerMinute} pkt/min</span>
-                            </div>
-                            <div className="mt-2 flex items-center justify-between border-t border-slate-200/60 pt-2 text-[10px]">
-                              <span className="text-slate-400">
-                                Decoders: {(Array.isArray(agent.decoders) && agent.decoders.length > 0) ? agent.decoders.join(" + ") : "NMEA2000 + NMEA0183"}
-                              </span>
-                              <div className="flex items-center gap-3">
-                                <button
-                                  onClick={() => testAgent(agent.id)}
-                                  className="font-bold text-[#db4040] hover:underline"
-                                >
-                                  Test connection
-                                </button>
-                                <button
-                                  onClick={() => openAgent(agent.id)}
-                                  className="text-slate-400 hover:text-slate-600"
-                                >
-                                  <Edit3 className="h-3.5 w-3.5" />
-                                </button>
+                              {isShared && selected.registerContent && (
+                                <div className="mt-2 rounded border border-emerald-200 bg-white/80 px-2 py-1 flex items-center justify-between text-[10px]">
+                                  <span className="text-emerald-800 font-medium">Register Content:</span>
+                                  <code className="font-mono font-bold text-emerald-700">{selected.registerContent}</code>
+                                </div>
+                              )}
+                              <div className="mt-2 flex items-center justify-between border-t border-slate-200/60 pt-2 text-[10px]">
+                                <span className="text-slate-400">
+                                  Decoders: {(Array.isArray(agent.decoders) && agent.decoders.length > 0) ? agent.decoders.join(" + ") : "NMEA2000 + NMEA0183"}
+                                </span>
+                                <div className="flex items-center gap-3">
+                                  <button
+                                    onClick={() => testAgent(agent.id)}
+                                    className="font-bold text-[#db4040] hover:underline"
+                                  >
+                                    Test connection
+                                  </button>
+                                  {isSuperadmin && (
+                                    <button
+                                      onClick={() => openAgent(agent.id)}
+                                      className="text-slate-400 hover:text-slate-600"
+                                    >
+                                      <Edit3 className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
 
                       {!selected.agentIds.length && (
-                        <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center">
-                          <Cable className="mx-auto h-6 w-6 text-slate-300" />
-                          <div className="mt-2 text-xs font-bold text-slate-600">
-                            No connectivity gateway linked
+                        selected.registerContent ? (
+                          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Radio className="h-4 w-4 text-emerald-600 animate-pulse" />
+                                <span className="text-xs font-bold text-emerald-900">
+                                  Default Shared Gateway (Hybrid)
+                                </span>
+                              </div>
+                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-bold text-emerald-700">
+                                Auto-Routed
+                              </span>
+                            </div>
+                            <p className="mt-2 text-[11px] text-emerald-800 leading-relaxed">
+                              Kapal ini otomatis menerima data stream melalui Port Bersama <strong>20005</strong> (CAN N2K) & <strong>20006</strong> (RS-485 NMEA) via Register Content:
+                            </p>
+                            <div className="mt-2 flex items-center justify-between rounded-lg border border-emerald-300 bg-white px-3 py-2">
+                              <span className="text-[10px] text-slate-500 font-medium">Header Registrasi USR:</span>
+                              <code className="rounded bg-emerald-50 px-2 py-0.5 font-mono text-xs font-bold text-emerald-700 border border-emerald-200">
+                                {selected.registerContent}
+                              </code>
+                            </div>
+                            <p className="mt-2 text-[10px] text-slate-500">
+                              Koneksikan modul USR-CANET200 / RS-485 ke IP server port 20005/20006 dengan Register Content di atas.
+                            </p>
                           </div>
-                          <p className="mt-1 text-[10px] text-slate-400">
-                            Edit this vessel to link a TCP agent.
-                          </p>
-                          <button
-                            onClick={() => openVessel(selected)}
-                            className="mt-3 text-[10px] font-bold text-[#db4040] hover:underline"
-                          >
-                            Assign Gateway Now →
-                          </button>
-                        </div>
+                        ) : (
+                          <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center">
+                            <Cable className="mx-auto h-6 w-6 text-slate-300" />
+                            <div className="mt-2 text-xs font-bold text-slate-600">
+                              No connectivity gateway linked
+                            </div>
+                            <p className="mt-1 text-[10px] text-slate-400">
+                              Isi Register Content atau hubungkan Dedicated Gateway untuk menerima stream sensor.
+                            </p>
+                            <button
+                              onClick={() => openVessel(selected)}
+                              className="mt-3 text-[10px] font-bold text-[#db4040] hover:underline"
+                            >
+                              Configure Gateway / Register Content →
+                            </button>
+                          </div>
+                        )
                       )}
                     </div>
                   </div>
@@ -1365,9 +1411,9 @@ export function VesselAssetsPage() {
                                           LIVE
                                         </span>
                                       ) : attr.status === "stale" ? (
-                                        <span className="flex items-center gap-1 text-[10px] font-bold text-amber-600">
+                                        <span className="flex items-center gap-1 text-[10px] font-bold text-slate-500">
                                           <span className="h-2 w-2 rounded-full bg-amber-400" />
-                                          LAST KNOWN
+                                          {attr.updatedAt ? formatDateTime(attr.updatedAt) : "OFFLINE"}
                                         </span>
                                       ) : (
                                         <span className="flex items-center gap-1 text-[10px] font-bold text-slate-400">
@@ -1734,12 +1780,19 @@ export function VesselAssetsPage() {
       >
         <div className="grid md:grid-cols-[260px_1fr]">
           <div className="border-b border-slate-200 p-4 md:border-b-0 md:border-r">
-            <button
-              onClick={() => openAgent()}
-              className={`${buttonSecondary} w-full`}
-            >
-              <Plus className="h-4 w-4" /> New agent
-            </button>
+            {isSuperadmin ? (
+              <button
+                onClick={() => openAgent()}
+                className={`${buttonSecondary} w-full`}
+              >
+                <Plus className="h-4 w-4" /> Port / Gateway Baru
+              </button>
+            ) : (
+              <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5 text-[11px] text-slate-600">
+                <span className="font-bold text-slate-800 block mb-0.5">ℹ️ Default Shared Gateway</span>
+                Default port 20005 (CAN) & 20006 (RS-485) aktif untuk semua tenant. Pembuatan Dedicated Port baru khusus wewenang Superadmin.
+              </div>
+            )}
             <div className="mt-3 space-y-2">
               {agents.map((agent) => (
                 <button
@@ -1961,7 +2014,7 @@ export function VesselAssetsPage() {
               </div>
             </div>
             <div className="mt-5 flex justify-end gap-2">
-              {editingAgentId && (
+              {editingAgentId && isSuperadmin && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1987,11 +2040,13 @@ export function VesselAssetsPage() {
                 onClick={() => setAgentModal(false)}
                 className={buttonSecondary}
               >
-                Cancel
+                {isSuperadmin ? "Cancel" : "Close"}
               </button>
-              <button className={buttonPrimary}>
-                {editingAgentId ? "Save changes" : "Create agent"}
-              </button>
+              {isSuperadmin && (
+                <button className={buttonPrimary}>
+                  {editingAgentId ? "Save changes" : "Create port / agent"}
+                </button>
+              )}
             </div>
           </form>
         </div>
@@ -2178,10 +2233,10 @@ export function VesselAssetsPage() {
             <div className="py-8 text-center">
               <Check className="mx-auto h-8 w-8 text-emerald-500" />
               <h3 className="mt-2 text-sm font-bold text-slate-800">
-                All Known Signals are Already Registered!
+                No Unmapped Live Signals Found
               </h3>
               <p className="mt-1 text-xs text-slate-400">
-                All candidate sensor signals have already been added to this vessel's attribute registry.
+                All sensor signals actively streaming from the agent are already mapped to this vessel, or no live payload has been received yet.
               </p>
             </div>
           )}

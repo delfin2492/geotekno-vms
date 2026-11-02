@@ -36,8 +36,9 @@ export function PageHeader({
   )
 }
 
-export function StatusBadge({ status }: { status: string }) {
-  const normalized = status.toLowerCase()
+export function StatusBadge({ status }: { status?: string | null }) {
+  const safeStatus = status || "Normal"
+  const normalized = safeStatus.toLowerCase()
   const style =
     (normalized.includes("connect") && !normalized.includes("dis")) ||
     normalized === "live" ||
@@ -59,7 +60,7 @@ export function StatusBadge({ status }: { status: string }) {
       className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[9px] font-bold capitalize ring-1 ring-inset ${style}`}
     >
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
-      {status}
+      {safeStatus}
     </span>
   )
 }

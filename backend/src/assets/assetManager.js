@@ -124,8 +124,7 @@ class AssetManager {
         return item;
       }
     }
-
-    return this.assets.values().next().value || null;
+    return null;
   }
 
   getAsset(assetId) {
@@ -194,7 +193,7 @@ class AssetManager {
     return true;
   }
 
-  async updateOwnShipIdentifiers(assetId, { mmsi, callsign, imo }) {
+  async updateOwnShipIdentifiers(assetId, { mmsi, callsign, imo, destination } = {}) {
     const item = this.assets.get(assetId);
     if (!item) return;
     let changed = false;
@@ -233,33 +232,23 @@ class AssetManager {
     let targetId = assetId;
     let assetItem = this.assets.get(targetId);
     if (!assetItem) {
-      assetItem = this.assets.get('vessel_c2e2cffb') || this.assets.values().next().value || null;
-      if (assetItem) targetId = assetItem.info.id;
+      return [];
     }
 
-    // Ambil data telemetri historis terakhir dari database jika ada
-    const latestDb = (await getLatestTelemetry(targetId).catch(() => null)) ||
-                     (await getLatestTelemetry('vessel_c2e2cffb').catch(() => null));
+    // Ambil data telemetri historis terakhir dari database kapal ini jika ada
+    const latestDb = await getLatestTelemetry(targetId).catch(() => null);
 
-    // Jika assetItem belum memiliki posisi (latitude null), hydrate dari data database terakhir
+    // Jika assetItem belum memiliki posisi (latitude null), hydrate dari data database terakhir miliknya sendiri
     if (assetItem && latestDb && assetItem.state.latitude === null) {
       assetItem.state.hydrateFromSnapshot(latestDb);
     }
 
     const snap = assetItem ? assetItem.state.getSnapshot() : null;
 
-    let res = await pool.query(
+    const res = await pool.query(
       'SELECT * FROM core_asset_attributes WHERE asset_id = $1 ORDER BY namespace ASC, display_name ASC',
       [targetId]
     );
-
-    // Jika belum ada atribut untuk targetId ini, fallback ke default kapal utama
-    if (res.rows.length === 0 && targetId !== 'vessel_c2e2cffb') {
-      res = await pool.query(
-        'SELECT * FROM core_asset_attributes WHERE asset_id = $1 ORDER BY namespace ASC, display_name ASC',
-        ['vessel_c2e2cffb']
-      );
-    }
 
     return res.rows.map((row) => {
       let liveVal = resolveAttributeLiveValue(snap, row.namespace, row.key_name);
@@ -284,6 +273,15 @@ class AssetManager {
         status = 'stale'; // Nilai terakhir yang diketahui (Last known value)
       }
 
+      let attrUpdatedAt = null;
+      if (isLiveNow) {
+        attrUpdatedAt = snap?.timestamp_utc || new Date().toISOString();
+      } else if (isFromDb && latestDb) {
+        attrUpdatedAt = latestDb.timestamp_utc || null;
+      } else if (snap && snap.timestamp_utc) {
+        attrUpdatedAt = snap.timestamp_utc;
+      }
+
       return {
         id: String(row.id),
         assetId: row.asset_id,
@@ -295,6 +293,7 @@ class AssetManager {
         pgnSource: sourceVal,
         liveValue: liveVal,
         status: status,
+        updatedAt: attrUpdatedAt,
       };
     });
   }
@@ -360,43 +359,247 @@ class AssetManager {
 
   async scanAvailableSignals(assetId) {
     const registered = await this.getAttributes(assetId);
-    const registeredKeys = new Set(registered.map((r) => `${r.namespace}.${r.keyName}`));
+    const registeredKeys = new Set();
+    for (const r of registered) {
+      const ns = (r.namespace || '').toLowerCase();
+      const k = (r.keyName || '').toLowerCase();
+      registeredKeys.add(`${ns}.${k}`);
 
-    const potentialSignals = [
-      { namespace: 'navigation', keyName: 'stw', displayName: 'Speed Through Water (STW)', unit: 'kn', pointingSource: 'PGN 128259 DST810', pgnSource: 'PGN 128259 DST810' },
-      { namespace: 'navigation', keyName: 'log_distance', displayName: 'Total Distance Log', unit: 'NM', pointingSource: 'PGN 128275 DST810', pgnSource: 'PGN 128275 DST810' },
-      { namespace: 'navigation', keyName: 'trip_distance', displayName: 'Trip Distance Log', unit: 'NM', pointingSource: 'PGN 128275 DST810', pgnSource: 'PGN 128275 DST810' },
-      { namespace: 'navigation', keyName: 'altitude', displayName: 'Antenna Altitude', unit: 'm', pointingSource: 'PGN 129029 GNSS', pgnSource: 'PGN 129029 GNSS' },
-      { namespace: 'navigation', keyName: 'hdop', displayName: 'Horizontal Dilution of Precision', unit: 'HDOP', pointingSource: 'PGN 129029 GNSS', pgnSource: 'PGN 129029 GNSS' },
-      { namespace: 'motion', keyName: 'pitch', displayName: 'Vessel Pitch / Trim Angle', unit: 'deg', pointingSource: 'PGN 127257 Attitude', pgnSource: 'PGN 127257 Attitude' },
-      { namespace: 'motion', keyName: 'roll', displayName: 'Vessel Roll / Heel Angle', unit: 'deg', pointingSource: 'PGN 127257 Attitude', pgnSource: 'PGN 127257 Attitude' },
-      { namespace: 'environment', keyName: 'baro_pressure', displayName: 'Barometric Atmospheric Pressure', unit: 'hPa', pointingSource: 'PGN 130311 Pressure', pgnSource: 'PGN 130311 Pressure' },
-      { namespace: 'environment', keyName: 'air_temp', displayName: 'Ambient Air Temperature', unit: '°C', pointingSource: 'PGN 130310 Temp', pgnSource: 'PGN 130310 Temp' },
-      { namespace: 'engine', keyName: 'coolant_temp', displayName: 'Engine Coolant Temperature', unit: '°C', pointingSource: 'PGN 127489 Dynamic Engine', pgnSource: 'PGN 127489 Dynamic Engine' },
-      { namespace: 'engine', keyName: 'oil_pressure', displayName: 'Engine Oil Pressure', unit: 'kPa', pointingSource: 'PGN 127489 Dynamic Engine', pgnSource: 'PGN 127489 Dynamic Engine' },
-      { namespace: 'engine', keyName: 'engine_hours', displayName: 'Total Engine Operating Hours', unit: 'hrs', pointingSource: 'PGN 127489 Engine Hours', pgnSource: 'PGN 127489 Engine Hours' },
-      { namespace: 'electrical', keyName: 'battery_current', displayName: 'DC Battery Bank Current', unit: 'A', pointingSource: 'PGN 127508 Battery Status', pgnSource: 'PGN 127508 Battery Status' },
-    ];
+      // Aliases normalizer agar tidak mendeteksi duplikat
+      if (ns === 'navigation') {
+        if (['position', 'coordinates', 'lat', 'lon', 'latitude', 'longitude'].includes(k)) {
+          registeredKeys.add('navigation.position');
+          registeredKeys.add('navigation.coordinates');
+          registeredKeys.add('navigation.latitude');
+          registeredKeys.add('navigation.longitude');
+        }
+        if (['sog', 'sog_knots', 'speed'].includes(k)) {
+          registeredKeys.add('navigation.sog');
+          registeredKeys.add('navigation.sog_knots');
+        }
+        if (['cog', 'cog_deg', 'course'].includes(k)) {
+          registeredKeys.add('navigation.cog');
+          registeredKeys.add('navigation.cog_deg');
+        }
+        if (['stw', 'stw_knots', 'speed_through_water'].includes(k)) {
+          registeredKeys.add('navigation.stw');
+          registeredKeys.add('navigation.stw_knots');
+        }
+        if (['altitude', 'altitude_m'].includes(k)) {
+          registeredKeys.add('navigation.altitude');
+          registeredKeys.add('navigation.altitude_m');
+        }
+        if (['log_distance', 'log_nm'].includes(k)) {
+          registeredKeys.add('navigation.log_distance');
+          registeredKeys.add('navigation.log_nm');
+        }
+        if (['trip_distance', 'trip_log_nm'].includes(k)) {
+          registeredKeys.add('navigation.trip_distance');
+          registeredKeys.add('navigation.trip_log_nm');
+        }
+      } else if (ns === 'motion') {
+        if (['heading', 'heading_deg'].includes(k)) {
+          registeredKeys.add('motion.heading');
+          registeredKeys.add('motion.heading_deg');
+        }
+        if (['rot', 'rot_deg_s', 'rate_of_turn'].includes(k)) {
+          registeredKeys.add('motion.rot');
+          registeredKeys.add('motion.rot_deg_s');
+        }
+        if (['pitch', 'pitch_deg'].includes(k)) {
+          registeredKeys.add('motion.pitch');
+          registeredKeys.add('motion.pitch_deg');
+        }
+        if (['roll', 'roll_deg'].includes(k)) {
+          registeredKeys.add('motion.roll');
+          registeredKeys.add('motion.roll_deg');
+        }
+      } else if (ns === 'environment') {
+        if (['depth', 'depth_m', 'depth_ft'].includes(k)) {
+          registeredKeys.add('environment.depth');
+          registeredKeys.add('environment.depth_m');
+        }
+        if (['wind_speed', 'wind_speed_kn'].includes(k)) {
+          registeredKeys.add('environment.wind_speed');
+          registeredKeys.add('environment.wind_speed_kn');
+        }
+        if (['wind_angle', 'wind_angle_deg'].includes(k)) {
+          registeredKeys.add('environment.wind_angle');
+          registeredKeys.add('environment.wind_angle_deg');
+        }
+        if (['water_temp', 'water_temp_c'].includes(k)) {
+          registeredKeys.add('environment.water_temp');
+          registeredKeys.add('environment.water_temp_c');
+        }
+        if (['air_temp', 'air_temp_c'].includes(k)) {
+          registeredKeys.add('environment.air_temp');
+          registeredKeys.add('environment.air_temp_c');
+        }
+        if (['baro_pressure', 'baro_pressure_hpa'].includes(k)) {
+          registeredKeys.add('environment.baro_pressure');
+          registeredKeys.add('environment.baro_pressure_hpa');
+        }
+      } else if (ns === 'engine' || ns === 'propulsion') {
+        if (['rpm', 'engine_rpm'].includes(k)) {
+          registeredKeys.add('engine.rpm');
+          registeredKeys.add('engine.engine_rpm');
+        }
+        if (['boost', 'boost_kpa'].includes(k)) {
+          registeredKeys.add('engine.boost');
+          registeredKeys.add('engine.boost_kpa');
+        }
+      } else if (ns === 'electrical') {
+        if (['battery_volts', 'voltage'].includes(k)) {
+          registeredKeys.add('electrical.battery_volts');
+        }
+        if (['battery_current', 'battery_amps', 'amps'].includes(k)) {
+          registeredKeys.add('electrical.battery_current');
+        }
+        if (['battery_temp', 'battery_temp_c'].includes(k)) {
+          registeredKeys.add('electrical.battery_temp');
+        }
+      }
+    }
 
-    // Sertakan sinyal dinamis yang terdeteksi dari Custom Decoder Script
     const targetAsset = this.assets.get(assetId);
-    if (targetAsset && targetAsset.state) {
-      const snap = targetAsset.state.getSnapshot();
-      if (snap && snap.custom) {
-        for (const [cKey, cVal] of Object.entries(snap.custom)) {
-          potentialSignals.push({
+    if (!targetAsset || !targetAsset.state) {
+      return [];
+    }
+
+    const state = targetAsset.state;
+
+    // HANYA PINDAI JIKA KAPAL MEMILIKI STREAM DATA LIVE DARI AGENT
+    if (!state.lastDataReceivedAt) {
+      return [];
+    }
+
+    const activePgns = new Set();
+    if (state.devices) {
+      for (const dev of state.devices.values()) {
+        if (dev.pgns) {
+          for (const p of dev.pgns) activePgns.add(p);
+        }
+      }
+    }
+
+    const liveSignals = [];
+
+    const addSignalIfLive = (ns, key, displayName, unit, condition, pgnHint, fallbackSource) => {
+      if (!condition) return;
+      if (registeredKeys.has(`${ns.toLowerCase()}.${key.toLowerCase()}`)) return;
+
+      let pointingSource = fallbackSource;
+      if (pgnHint && activePgns.has(pgnHint)) {
+        pointingSource = `PGN ${pgnHint} (Live CAN Frame)`;
+      }
+
+      liveSignals.push({
+        namespace: ns,
+        keyName: key,
+        displayName: displayName,
+        unit: unit,
+        pointingSource: pointingSource,
+        pgnSource: pointingSource,
+      });
+    };
+
+    // 1. Navigation: hanya jika ada data nyata di state live kapal
+    if (state.latitude !== null && state.longitude !== null && state.latitude !== undefined && state.longitude !== undefined) {
+      addSignalIfLive('navigation', 'coordinates', 'GNSS Coordinates', 'lat,lon', true, 129025, 'Live GPS Stream');
+    }
+    if (state.sog_knots !== null && state.sog_knots !== undefined) {
+      addSignalIfLive('navigation', 'sog', 'Speed Over Ground (SOG)', 'kn', true, 129026, 'Live Speed Sensor');
+    }
+    if (state.cog_deg !== null && state.cog_deg !== undefined) {
+      addSignalIfLive('navigation', 'cog', 'Course Over Ground (COG)', 'deg', true, 129026, 'Live Course Sensor');
+    }
+    if (state.altitude_m !== null && state.altitude_m !== undefined) {
+      addSignalIfLive('navigation', 'altitude', 'Antenna Altitude', 'm', true, 129029, 'Live GNSS Fix');
+    }
+    if (state.satellites !== null && state.satellites !== undefined) {
+      addSignalIfLive('navigation', 'satellites', 'Satellites In View', 'sats', true, 129029, 'Live GNSS Fix');
+    }
+    if (state.hdop !== null && state.hdop !== undefined) {
+      addSignalIfLive('navigation', 'hdop', 'Horizontal Dilution of Precision', 'HDOP', true, 129029, 'Live GNSS Fix');
+    }
+    if (state.stw_knots !== null && state.stw_knots !== undefined) {
+      addSignalIfLive('navigation', 'stw', 'Speed Through Water (STW)', 'kn', true, 128259, 'Live DST810 Sensor');
+    }
+    if (state.log_nm !== null && state.log_nm !== undefined) {
+      addSignalIfLive('navigation', 'log_distance', 'Total Distance Log', 'NM', true, 128275, 'Live Distance Log');
+    }
+    if (state.trip_log_nm !== null && state.trip_log_nm !== undefined) {
+      addSignalIfLive('navigation', 'trip_distance', 'Trip Distance Log', 'NM', true, 128275, 'Live Distance Log');
+    }
+
+    // 2. Motion: hanya jika ada data nyata di state live kapal
+    if (state.heading_deg !== null && state.heading_deg !== undefined) {
+      addSignalIfLive('motion', 'heading', 'Magnetic / True Heading', 'deg', true, 127250, 'Live Compass Heading');
+    }
+    if (state.rot_deg_s !== null && state.rot_deg_s !== undefined) {
+      addSignalIfLive('motion', 'rot', 'Rate of Turn (ROT)', 'deg/s', true, 127251, 'Live Gyro Sensor');
+    }
+    if (state.pitch_deg !== null && state.pitch_deg !== undefined) {
+      addSignalIfLive('motion', 'pitch', 'Vessel Pitch / Trim Angle', 'deg', true, 127257, 'Live Attitude Sensor');
+    }
+    if (state.roll_deg !== null && state.roll_deg !== undefined) {
+      addSignalIfLive('motion', 'roll', 'Vessel Roll / Heel Angle', 'deg', true, 127257, 'Live Attitude Sensor');
+    }
+
+    // 3. Environment: hanya jika ada data nyata di state live kapal
+    if (state.depth_m !== null && state.depth_m !== undefined) {
+      addSignalIfLive('environment', 'depth', 'Water Depth Below Keel', 'm', true, 128267, 'Live Depth Sounder');
+    }
+    if (state.wind_speed_kn !== null && state.wind_speed_kn !== undefined) {
+      addSignalIfLive('environment', 'wind_speed', 'Apparent Wind Speed', 'kn', true, 130306, 'Live Anemometer');
+    }
+    if (state.wind_angle_deg !== null && state.wind_angle_deg !== undefined) {
+      addSignalIfLive('environment', 'wind_angle', 'Apparent Wind Angle', 'deg', true, 130306, 'Live Wind Vane');
+    }
+    if (state.water_temp_c !== null && state.water_temp_c !== undefined) {
+      addSignalIfLive('environment', 'water_temp', 'Sea Water Temperature', '°C', true, 130310, 'Live Water Temp Sensor');
+    }
+    if (state.air_temp_c !== null && state.air_temp_c !== undefined) {
+      addSignalIfLive('environment', 'air_temp', 'Ambient Air Temperature', '°C', true, 130310, 'Live Air Temp Sensor');
+    }
+    if (state.baro_pressure_hpa !== null && state.baro_pressure_hpa !== undefined) {
+      addSignalIfLive('environment', 'baro_pressure', 'Barometric Atmospheric Pressure', 'hPa', true, 130311, 'Live Barometer');
+    }
+
+    // 4. Engine & Electrical: hanya jika ada data nyata di state live kapal
+    if (state.engine_rpm !== null && state.engine_rpm !== undefined) {
+      addSignalIfLive('engine', 'rpm', 'Engine Speed', 'RPM', true, 127488, 'Live Dynamic Engine');
+    }
+    if (state.boost_kpa !== null && state.boost_kpa !== undefined) {
+      addSignalIfLive('engine', 'boost_kpa', 'Turbo Boost Pressure', 'kPa', true, 127488, 'Live Dynamic Engine');
+    }
+    if (state.battery_volts !== null && state.battery_volts !== undefined) {
+      addSignalIfLive('electrical', 'battery_volts', 'DC Battery Bank Voltage', 'V', true, 127508, 'Live Battery Monitor');
+    }
+    if (state.battery_amps !== null && state.battery_amps !== undefined) {
+      addSignalIfLive('electrical', 'battery_current', 'DC Battery Bank Current', 'A', true, 127508, 'Live Battery Shunt');
+    }
+    if (state.battery_temp_c !== null && state.battery_temp_c !== undefined) {
+      addSignalIfLive('electrical', 'battery_temp', 'Battery Temperature', '°C', true, 127508, 'Live Battery Monitor');
+    }
+
+    // 5. Custom Attributes dari Script Decoder (Hanya yang benar-benar ada nilainya di live payload)
+    if (state.customAttributes && state.customAttributes.size > 0) {
+      for (const [cKey, cVal] of state.customAttributes.entries()) {
+        if (cVal !== null && cVal !== undefined && !registeredKeys.has(`custom.${cKey.toLowerCase()}`)) {
+          liveSignals.push({
             namespace: 'custom',
             keyName: cKey,
             displayName: cKey.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
             unit: typeof cVal === 'number' ? 'val' : '',
-            pointingSource: 'Custom Decoder Script',
-            pgnSource: 'Custom Decoder Script',
+            pointingSource: 'Custom Decoder Live Stream',
+            pgnSource: 'Custom Decoder Live Stream',
           });
         }
       }
     }
 
-    return potentialSignals.filter((p) => !registeredKeys.has(`${p.namespace}.${p.keyName}`));
+    return liveSignals;
   }
 }
 

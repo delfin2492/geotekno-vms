@@ -13,6 +13,7 @@ const { decodeNmea2000Payload } = require('../parser/pgnDecoders');
 const { parseNmea0183Sentence } = require('../parser/nmea0183');
 const { assetManager } = require('../assets/assetManager');
 const { logBuffer } = require('../logs/logBuffer');
+const { broadcastLiveTelemetry } = require('../network/wsServer');
 
 /**
  * Menghasilkan ID unik acak terstruktur untuk agent
@@ -153,12 +154,33 @@ class TcpUsrAgentInstance {
             const regStr = chunk.subarray(0, textEnd).toString('ascii').trim();
             if (regStr.length > 0) {
               console.log(`[AGENT ${this.id}] Menerima Registration Packet dari ${remote}: "${regStr}"`);
+              const isSharedGateway = (this.port === 20005 || this.port === 20006 || this.id === 'agent_7a3d9b1e' || this.id === 'agent_f4a8b2c6');
               const matched = assetManager.findAssetByCodeOrName(regStr);
+
               if (matched) {
-                boundAssetId = matched.info.id;
-                console.log(`[AGENT ${this.id}] Koneksi ${remote} BERHASIL DIHUBUNGKAN ke kapal: "${matched.info.name}" (ID: ${boundAssetId})`);
+                if (isSharedGateway) {
+                  // MODEL HYBRID SHARED GATEWAY (Default Ports 20005 CAN & 20006 NMEA):
+                  // Setiap kapal dari tenant manapun dapat mengirim data ke shared port ini dengan Register Content yang cocok
+                  boundAssetId = matched.info.id;
+                  console.log(`[AGENT ${this.id}] [SHARED GATEWAY] Koneksi ${remote} BERHASIL DIHUBUNGKAN ke kapal: "${matched.info.name}" (ID: ${boundAssetId}, Tenant: ${matched.info.company_id})`);
+                } else {
+                  // MODEL DEDICATED GATEWAY (Port khusus yang dibuat Superadmin untuk kapal/tenant spesifik)
+                  const assignedAgents = Array.isArray(matched.info.metadata?.agentIds)
+                    ? matched.info.metadata.agentIds
+                    : (matched.info.agent_id ? [matched.info.agent_id] : []);
+                  
+                  const isAssigned = assignedAgents.includes(this.id);
+                  const isCompanyMatch = !this.company_id || (matched.info.company_id === this.company_id);
+
+                  if (isAssigned && isCompanyMatch) {
+                    boundAssetId = matched.info.id;
+                    console.log(`[AGENT ${this.id}] [DEDICATED GATEWAY] Koneksi ${remote} BERHASIL DIHUBUNGKAN ke kapal: "${matched.info.name}" (ID: ${boundAssetId})`);
+                  } else {
+                    console.warn(`[AGENT ${this.id}] Registrasi "${regStr}" (Kapal: "${matched.info.name}") DIABAIKAN karena kapal belum menghubungkan Dedicated Agent (${this.id}) atau beda tenant.`);
+                  }
+                }
               } else {
-                console.warn(`[AGENT ${this.id}] Registrasi "${regStr}" tidak cocok dengan kapal manapun.`);
+                console.warn(`[AGENT ${this.id}] Registrasi "${regStr}" tidak cocok dengan kapal manapun di sistem.`);
               }
               // Buang string registrasi dan delimiter trailing seperti \r, \n, \0
               while (textEnd < chunk.length && (chunk[textEnd] < 0x20 || chunk[textEnd] === 0x00)) {
@@ -208,7 +230,7 @@ class TcpUsrAgentInstance {
                   type: decoded.type,
                   raw: trimmed,
                   decoded: decoded,
-                  vessel_id: boundAssetId || 'vessel_c2e2cffb',
+                  vessel_id: boundAssetId || null,
                   category: ['RMC', 'GGA', 'GLL', 'VTG'].includes(decoded.type)
                     ? 'GPS'
                     : ['HDT', 'HDG', 'ROT'].includes(decoded.type)
@@ -268,14 +290,16 @@ class TcpUsrAgentInstance {
               this.dispatchToAssets(targetPgn, source, decoded, boundAssetId);
 
               // Catat sampling frame CAN penting ke Live Data Logs
-              const importantPgns = [129025, 129026, 127250, 128267, 130306, 129038, 129039];
+              const importantPgns = [129025, 129026, 127250, 128267, 130306, 130310, 130311, 129038, 129039];
               if (importantPgns.includes(targetPgn) || this.totalFrames % 10 === 0) {
                 let pgnLabel = `PGN ${targetPgn}`;
                 if (targetPgn === 129025) pgnLabel = 'PGN 129025 (Position)';
                 else if (targetPgn === 129026) pgnLabel = 'PGN 129026 (COG/SOG)';
                 else if (targetPgn === 127250) pgnLabel = 'PGN 127250 (Heading)';
-                else if (targetPgn === 128267) pgnLabel = 'PGN 128267 (Depth)';
+                else if (targetPgn === 128267) pgnLabel = 'PGN 128267 (Water Depth)';
                 else if (targetPgn === 130306) pgnLabel = 'PGN 130306 (Wind)';
+                else if (targetPgn === 130310) pgnLabel = 'PGN 130310 (Water Temp)';
+                else if (targetPgn === 130311) pgnLabel = 'PGN 130311 (Environmental)';
                 else if (targetPgn === 129038) pgnLabel = `PGN 129038 (AIS ${decoded.mmsi || ''})`;
                 else if (targetPgn === 129039) pgnLabel = `PGN 129039 (AIS ${decoded.mmsi || ''})`;
 
@@ -287,13 +311,15 @@ class TcpUsrAgentInstance {
                   type: pgnLabel,
                   raw: `[SRC: ${source}] ${hexStr}`,
                   decoded: decoded,
-                  vessel_id: boundAssetId || 'vessel_c2e2cffb',
+                  vessel_id: boundAssetId || null,
                   category: [129038, 129039].includes(targetPgn)
                     ? 'AIS'
                     : [129025, 129026].includes(targetPgn)
                     ? 'GPS'
                     : targetPgn === 127250
                     ? 'MOTION'
+                    : [128267, 130310, 130311, 130306].includes(targetPgn)
+                    ? 'ENVIRONMENT'
                     : 'N2K',
                 });
               }
@@ -358,41 +384,32 @@ class TcpUsrAgentInstance {
         assetItem.state.updateFrameStats();
         assetItem.state.updateDevice(source, pgn);
         assetItem.state.applyDecoded(pgn, source, decodedData);
+        // Loss Mode: Broadcast seketika per frame tanpa delay 1 detik
+        broadcastLiveTelemetry(targetAssetId, assetItem.state.getSnapshot());
         return;
       }
     }
 
+    const isSharedGateway = (this.port === 20005 || this.port === 20006 || this.id === 'agent_7a3d9b1e' || this.id === 'agent_f4a8b2c6');
+    if (isSharedGateway) {
+      // Pada Shared Gateway, jika socket tidak terikat (boundAssetId === null),
+      // JANGAN fallback ke KM Geo Tekno ataupun broadcast ke kapal lain.
+      return;
+    }
+
     // Cari semua asset yang terhubung ke agent ini (Primary maupun Secondary)
-    let dispatched = false;
     for (const [assetId, assetItem] of assetManager.assets.entries()) {
-      const isPrimary = assetItem.info.agent_id === this.id;
+      const assigned = Array.isArray(assetItem.info.metadata?.agentIds)
+        ? assetItem.info.metadata.agentIds.includes(this.id)
+        : (assetItem.info.agent_id === this.id);
       const isSecondary = assetItem.info.metadata?.secondary_agent_id === this.id;
-      if ((isPrimary || isSecondary) && shouldAcceptCan(assetItem)) {
+      if ((assigned || isSecondary) && shouldAcceptCan(assetItem)) {
         assetItem.state.updateFrameStats();
         assetItem.state.updateDevice(source, pgn);
         assetItem.state.applyDecoded(pgn, source, decodedData);
-        dispatched = true;
+        // Loss Mode: Broadcast seketika per frame tanpa delay 1 detik
+        broadcastLiveTelemetry(assetId, assetItem.state.getSnapshot());
       }
-    }
-
-    if (!dispatched && assetManager.assets.size > 0) {
-      const defaultAsset = assetManager.getAsset('vessel_c2e2cffb') || Array.from(assetManager.assets.values())[0];
-      if (defaultAsset && shouldAcceptCan(defaultAsset)) {
-        defaultAsset.state.updateFrameStats();
-        defaultAsset.state.updateDevice(source, pgn);
-        defaultAsset.state.applyDecoded(pgn, source, decodedData);
-      }
-    }
-
-    // Auto-update MMSI, Callsign, IMO dan Destination dari PGN AIS Static
-    if ((pgn === 129794 || pgn === 129809) && decodedData && (decodedData.mmsi || decodedData.callsign)) {
-      const targetId = targetAssetId || 'vessel_c2e2cffb';
-      assetManager.updateOwnShipIdentifiers(targetId, {
-        mmsi: decodedData.mmsi,
-        callsign: decodedData.callsign,
-        imo: decodedData.imo,
-        destination: decodedData.destination,
-      });
     }
   }
 
@@ -402,46 +419,48 @@ class TcpUsrAgentInstance {
       return !mode || mode === 'HYBRID' || mode === 'RS485_ONLY';
     };
 
-    // Auto-update MMSI, Callsign, IMO, dan Destination dari NMEA !AIVDO (Own Vessel) atau AIS Type 5
-    if (decodedData && (decodedData.is_own_vessel || decodedData.type === 'VDO' || decodedData.callsign || decodedData.imo || decodedData.destination)) {
-      const targetId = targetAssetId || 'vessel_c2e2cffb';
-      if (decodedData.mmsi || decodedData.callsign || decodedData.imo || decodedData.destination) {
-        assetManager.updateOwnShipIdentifiers(targetId, {
-          mmsi: decodedData.mmsi,
-          callsign: decodedData.callsign,
-          imo: decodedData.imo,
-          destination: decodedData.destination,
-        });
-      }
-    }
-
     if (targetAssetId) {
       const assetItem = assetManager.getAsset(targetAssetId);
       if (assetItem && shouldAcceptNmea(assetItem)) {
         assetItem.state.updateFrameStats();
         assetItem.state.applyNmea0183(decodedData);
+        // Loss Mode: Broadcast seketika per frame tanpa delay 1 detik
+        broadcastLiveTelemetry(targetAssetId, assetItem.state.getSnapshot());
+
+        // Auto-update MMSI, Callsign, IMO, dan Destination HANYA dari NMEA !AIVDO (Own Vessel VHF Transponder)
+        // JANGAN pernah mengupdate dari !AIVDM karena AIVDM adalah target kapal lain di sekitar
+        if (decodedData && (decodedData.is_own_vessel === true || decodedData.type === 'VDO')) {
+          if (decodedData.mmsi || decodedData.callsign || decodedData.imo || decodedData.destination) {
+            assetManager.updateOwnShipIdentifiers(targetAssetId, {
+              mmsi: decodedData.mmsi,
+              callsign: decodedData.callsign,
+              imo: decodedData.imo,
+              destination: decodedData.destination,
+            });
+          }
+        }
         return;
       }
     }
 
-    // Cari asset yang terhubung langsung ke agent ini (Primary maupun Secondary)
-    let dispatched = false;
-    for (const [assetId, assetItem] of assetManager.assets.entries()) {
-      const isPrimary = assetItem.info.agent_id === this.id;
-      const isSecondary = assetItem.info.metadata?.secondary_agent_id === this.id;
-      if ((isPrimary || isSecondary) && shouldAcceptNmea(assetItem)) {
-        assetItem.state.updateFrameStats();
-        assetItem.state.applyNmea0183(decodedData);
-        dispatched = true;
-      }
+    const isSharedGateway = (this.port === 20005 || this.port === 20006 || this.id === 'agent_7a3d9b1e' || this.id === 'agent_f4a8b2c6');
+    if (isSharedGateway) {
+      // Pada Shared Gateway, jika socket tidak terikat (boundAssetId === null),
+      // JANGAN fallback ke KM Geo Tekno ataupun broadcast ke kapal lain.
+      return;
     }
 
-    // Fallback: teruskan ke default jika agent belum di-assign spesifik
-    if (!dispatched && assetManager.assets.size > 0) {
-      const defaultAsset = assetManager.getAsset('vessel_c2e2cffb') || Array.from(assetManager.assets.values())[0];
-      if (defaultAsset && shouldAcceptNmea(defaultAsset)) {
-        defaultAsset.state.updateFrameStats();
-        defaultAsset.state.applyNmea0183(decodedData);
+    // Cari asset yang terhubung langsung ke agent ini (Primary maupun Secondary)
+    for (const [assetId, assetItem] of assetManager.assets.entries()) {
+      const assigned = Array.isArray(assetItem.info.metadata?.agentIds)
+        ? assetItem.info.metadata.agentIds.includes(this.id)
+        : (assetItem.info.agent_id === this.id);
+      const isSecondary = assetItem.info.metadata?.secondary_agent_id === this.id;
+      if ((assigned || isSecondary) && shouldAcceptNmea(assetItem)) {
+        assetItem.state.updateFrameStats();
+        assetItem.state.applyNmea0183(decodedData);
+        // Loss Mode: Broadcast seketika per frame tanpa delay 1 detik
+        broadcastLiveTelemetry(assetId, assetItem.state.getSnapshot());
       }
     }
   }

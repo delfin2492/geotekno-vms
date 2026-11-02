@@ -42,15 +42,6 @@ const AVAILABLE_FEATURES = [
   { key: "telemetry.export", label: "Telemetry History Export", desc: "Download vessel NMEA logs & CSV archives" },
 ]
 
-const AVAILABLE_SECTIONS = [
-  { key: "nav", label: "Navigation & Position", desc: "Coordinates, SOG, COG, Heading, ROT" },
-  { key: "wind", label: "Wind & Environment", desc: "Apparent / True Wind, Pressure, Sea Temp" },
-  { key: "depth", label: "Depth & Water", desc: "Depth below transducer, Water speed" },
-  { key: "engine", label: "Engine & Machinery", desc: "RPM, Boost, Oil pressure, Coolant temp" },
-  { key: "tanks", label: "Tanks & Fluid Levels", desc: "Fuel, Fresh water, Waste, Oil levels" },
-  { key: "electrical", label: "Electrical & Battery", desc: "Battery bank voltage, Current, Charger status" },
-]
-
 export function UserManagementPage() {
   const {
     user: currentUser,
@@ -137,7 +128,6 @@ export function UserManagementPage() {
     role_id: "role_fleet_operator",
     company_id: "comp_geotekno",
     is_active: true,
-    assigned_vessels: [] as string[],
   })
 
   // Role Modals
@@ -151,11 +141,7 @@ export function UserManagementPage() {
     description: "",
     pagePermissions: {} as Record<string, { read: boolean; write: boolean }>,
     featurePermissions: {} as Record<string, { read: boolean; write: boolean }>,
-    sectionPermissions: {} as Record<string, { read: boolean; write: boolean }>,
   })
-
-  // Dynamic Monitoring Sections loaded from DB
-  const [monitoringSections, setMonitoringSections] = useState<{ key: string; label: string; desc: string }[]>(AVAILABLE_SECTIONS)
 
   // Company Modals & State
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false)
@@ -176,33 +162,16 @@ export function UserManagementPage() {
     setLoading(true)
     setError(null)
     try {
-      const [usersRes, rolesRes, vesselsRes, sectionsRes, companiesRes] = await Promise.all([
+      const [usersRes, rolesRes, vesselsRes, companiesRes] = await Promise.all([
         authApi.listUsers(),
         authApi.listRoles(),
         api.getVessels(),
-        api.getMonitoringSections().catch(() => []),
         authApi.listCompanies().catch(() => [] as Company[]),
       ])
       setUsers(usersRes.users)
       setRoles(rolesRes.roles)
       setVessels(vesselsRes)
       setCompanies(Array.isArray(companiesRes) ? companiesRes : [])
-
-      if (Array.isArray(sectionsRes) && sectionsRes.length > 0) {
-        const dynamicList = sectionsRes.map((s: any) => ({
-          key: s.id,
-          label: s.name,
-          desc: s.description || `Section scope for ${s.name}`,
-        }))
-        if (!dynamicList.some((s) => s.key === "*")) {
-          dynamicList.push({
-            key: "*",
-            label: "Custom / Additional Sections",
-            desc: "Access to newly created dashboard sections and command centers",
-          })
-        }
-        setMonitoringSections(dynamicList)
-      }
     } catch (err: any) {
       setError(err.message || "Failed to load directory data.")
     } finally {
@@ -225,10 +194,6 @@ export function UserManagementPage() {
       ? selectedCompanyFilter
       : (currentUser?.company_id || "comp_geotekno")
 
-    const compVessels = vessels.filter(
-      (v) => !v.companyId || v.companyId === defaultCompId || (v as any).company_id === defaultCompId,
-    )
-
     setUserFormData({
       name: "",
       email: "",
@@ -236,7 +201,6 @@ export function UserManagementPage() {
       role_id: roles.length > 0 ? roles[0].id : "role_fleet_operator",
       company_id: defaultCompId,
       is_active: true,
-      assigned_vessels: compVessels.length > 0 ? [compVessels[0].id] : [],
     })
     setIsUserModalOpen(true)
   }
@@ -244,10 +208,6 @@ export function UserManagementPage() {
   const openEditUserModal = (targetUser: User) => {
     setUserModalMode("edit")
     setSelectedUser(targetUser)
-
-    const assignedVessels = Array.isArray(targetUser.vessels)
-      ? targetUser.vessels.map((v: any) => (typeof v === "string" ? v : v.vessel_id))
-      : []
 
     let roleId = targetUser.role_id
     if (!roleId) {
@@ -263,7 +223,6 @@ export function UserManagementPage() {
       role_id: roleId,
       company_id: targetUser.company_id || "comp_geotekno",
       is_active: targetUser.isActive ?? (targetUser as any).is_active ?? true,
-      assigned_vessels: assignedVessels,
     })
     setIsUserModalOpen(true)
   }
@@ -280,7 +239,6 @@ export function UserManagementPage() {
           role_id: userFormData.role_id,
           company_id: userFormData.company_id,
           is_active: userFormData.is_active,
-          vessels: userFormData.assigned_vessels,
         })
         setSuccess("New user account created successfully.")
       } else {
@@ -292,7 +250,6 @@ export function UserManagementPage() {
           role_id: userFormData.role_id,
           company_id: userFormData.company_id,
           is_active: userFormData.is_active,
-          vessels: userFormData.assigned_vessels,
         })
         setSuccess("User account updated successfully.")
       }
@@ -469,17 +426,11 @@ export function UserManagementPage() {
       defaultFeatures[f.key] = { read: false, write: false }
     })
 
-    const defaultSections: Record<string, { read: boolean; write: boolean }> = {}
-    monitoringSections.forEach((s) => {
-      defaultSections[s.key] = { read: true, write: false }
-    })
-
     setRoleFormData({
       name: "",
       description: "",
       pagePermissions: defaultPages,
       featurePermissions: defaultFeatures,
-      sectionPermissions: defaultSections,
     })
     setIsRoleModalOpen(true)
   }
@@ -506,21 +457,11 @@ export function UserManagementPage() {
       }
     })
 
-    const secPerms: Record<string, { read: boolean; write: boolean }> = {}
-    monitoringSections.forEach((s) => {
-      const existing = role.permissions?.sections?.[s.key]
-      secPerms[s.key] = {
-        read: existing?.read ?? (role.id === "role_superadmin"),
-        write: existing?.write ?? (role.id === "role_superadmin"),
-      }
-    })
-
     setRoleFormData({
       name: role.name,
       description: role.description || "",
       pagePermissions: pagePerms,
       featurePermissions: featPerms,
-      sectionPermissions: secPerms,
     })
     setIsRoleModalOpen(true)
   }
@@ -538,12 +479,6 @@ export function UserManagementPage() {
         })),
         ...Object.entries(roleFormData.featurePermissions).map(([k, v]) => ({
           resource_type: "FEATURE",
-          resource_key: k,
-          can_read: v.read,
-          can_write: v.write,
-        })),
-        ...Object.entries(roleFormData.sectionPermissions).map(([k, v]) => ({
-          resource_type: "SECTION",
           resource_key: k,
           can_read: v.read,
           can_write: v.write,
@@ -613,18 +548,6 @@ export function UserManagementPage() {
     })
   }
 
-  const toggleVessel = (vesselId: string) => {
-    setUserFormData((prev) => {
-      const exists = prev.assigned_vessels.includes(vesselId)
-      return {
-        ...prev,
-        assigned_vessels: exists
-          ? prev.assigned_vessels.filter((id) => id !== vesselId)
-          : [...prev.assigned_vessels, vesselId],
-      }
-    })
-  }
-
   return (
     <div className="min-h-screen bg-slate-50 p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-7xl space-y-6">
@@ -638,7 +561,7 @@ export function UserManagementPage() {
               <h1 className="text-xl font-bold text-slate-800">User & Access Management</h1>
             </div>
             <p className="mt-1 text-xs text-slate-500">
-              Manage team accounts, define roles with page & feature permissions, and assign fleet vessel access.
+              Manage team accounts, define roles with page & feature permissions, and configure organization access.
             </p>
           </div>
 
@@ -682,8 +605,8 @@ export function UserManagementPage() {
           <button
             onClick={() => setActiveTab("users")}
             className={`flex items-center gap-2 px-5 py-3 text-xs font-bold border-b-2 transition cursor-pointer ${activeTab === "users"
-                ? "border-[#db4040] text-[#db4040]"
-                : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
+              ? "border-[#db4040] text-[#db4040]"
+              : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
               }`}
           >
             <Users className="h-4 w-4" />
@@ -693,8 +616,8 @@ export function UserManagementPage() {
             <button
               onClick={() => setActiveTab("roles")}
               className={`flex items-center gap-2 px-5 py-3 text-xs font-bold border-b-2 transition cursor-pointer ${activeTab === "roles"
-                  ? "border-[#db4040] text-[#db4040]"
-                  : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
+                ? "border-[#db4040] text-[#db4040]"
+                : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
                 }`}
             >
               <ShieldCheck className="h-4 w-4" />
@@ -705,8 +628,8 @@ export function UserManagementPage() {
             <button
               onClick={() => setActiveTab("companies")}
               className={`flex items-center gap-2 px-5 py-3 text-xs font-bold border-b-2 transition cursor-pointer ${activeTab === "companies"
-                  ? "border-[#db4040] text-[#db4040]"
-                  : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
+                ? "border-[#db4040] text-[#db4040]"
+                : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
                 }`}
             >
               <Building2 className="h-4 w-4" />
@@ -822,21 +745,20 @@ export function UserManagementPage() {
                     <th className="px-6 py-3.5">Company</th>
                     <th className="px-6 py-3.5">Assigned Role</th>
                     <th className="px-6 py-3.5">Status</th>
-                    <th className="px-6 py-3.5">Vessel Access</th>
                     <th className="px-6 py-3.5 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {loading ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-slate-400">
+                      <td colSpan={5} className="py-12 text-center text-slate-400">
                         <Compass className="mx-auto h-6 w-6 animate-spin text-[#db4040]" />
                         <p className="mt-2 font-medium">Loading user accounts...</p>
                       </td>
                     </tr>
                   ) : filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-slate-400">
+                      <td colSpan={5} className="py-12 text-center text-slate-400">
                         {users.length === 0 ? (
                           "No registered users found. Click \"+ Add User\" to register an operator."
                         ) : (
@@ -914,37 +836,6 @@ export function UserManagementPage() {
                               </span>
                             )}
                           </td>
-                          <td className="px-6 py-4">
-                            {isSuper ? (
-                              <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-                                <Ship className="h-3 w-3" />
-                                Full Fleet (All Vessels)
-                              </span>
-                            ) : u.vessels && u.vessels.length > 0 ? (
-                              <div className="flex flex-wrap gap-1">
-                                {u.vessels.slice(0, 2).map((vItem: any) => {
-                                  const vId = typeof vItem === "string" ? vItem : vItem.vessel_id
-                                  const vesselObj = vessels.find((v) => v.id === vId)
-                                  return (
-                                    <span
-                                      key={vId}
-                                      className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600"
-                                    >
-                                      <Ship className="h-2.5 w-2.5 text-slate-400" />
-                                      {vesselObj ? vesselObj.name : vId}
-                                    </span>
-                                  )
-                                })}
-                                {u.vessels.length > 2 && (
-                                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
-                                    +{u.vessels.length - 2} more
-                                  </span>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-[11px] text-slate-400 italic">No assigned vessels</span>
-                            )}
-                          </td>
                           <td className="px-6 py-4 text-right">
                             {canWriteUser ? (
                               <div className="flex items-center justify-end gap-1.5">
@@ -994,33 +885,30 @@ export function UserManagementPage() {
                   <button
                     type="button"
                     onClick={() => setRoleCategoryFilter("all")}
-                    className={`rounded-xl px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
-                      roleCategoryFilter === "all"
+                    className={`rounded-xl px-3 py-1.5 text-xs font-bold transition cursor-pointer ${roleCategoryFilter === "all"
                         ? "bg-slate-900 text-white shadow-sm"
                         : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                    }`}
+                      }`}
                   >
                     All Roles ({roles.length})
                   </button>
                   <button
                     type="button"
                     onClick={() => setRoleCategoryFilter("platform")}
-                    className={`rounded-xl px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
-                      roleCategoryFilter === "platform"
+                    className={`rounded-xl px-3 py-1.5 text-xs font-bold transition cursor-pointer ${roleCategoryFilter === "platform"
                         ? "bg-rose-600 text-white shadow-sm"
                         : "bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200"
-                    }`}
+                      }`}
                   >
                     Platform & System ({roles.filter((r) => r.id !== "role_company_admin").length})
                   </button>
                   <button
                     type="button"
                     onClick={() => setRoleCategoryFilter("tenant")}
-                    className={`rounded-xl px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
-                      roleCategoryFilter === "tenant"
+                    className={`rounded-xl px-3 py-1.5 text-xs font-bold transition cursor-pointer ${roleCategoryFilter === "tenant"
                         ? "bg-blue-600 text-white shadow-sm"
                         : "bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200"
-                    }`}
+                      }`}
                   >
                     Tenant Templates ({roles.filter((r) => r.id === "role_company_admin" || !r.is_system).length})
                   </button>
@@ -1077,15 +965,14 @@ export function UserManagementPage() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2.5">
                           <span
-                            className={`flex h-9 w-9 items-center justify-center rounded-xl ${
-                              isSuperRole
+                            className={`flex h-9 w-9 items-center justify-center rounded-xl ${isSuperRole
                                 ? "bg-rose-100 text-[#db4040]"
                                 : isTenantAdminRole
-                                ? "bg-blue-100 text-blue-600"
-                                : isCustomRole
-                                ? "bg-purple-100 text-purple-600"
-                                : "bg-slate-100 text-slate-700"
-                            }`}
+                                  ? "bg-blue-100 text-blue-600"
+                                  : isCustomRole
+                                    ? "bg-purple-100 text-purple-600"
+                                    : "bg-slate-100 text-slate-700"
+                              }`}
                           >
                             {isTenantAdminRole ? (
                               <Building2 className="h-4 w-4" />
@@ -1127,15 +1014,6 @@ export function UserManagementPage() {
                           </span>
                           <span className="font-bold text-slate-900">
                             {isSuperRole ? "Full Control" : `${featCount} Configured`}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-slate-600">
-                          <span className="flex items-center gap-1.5 text-[11px]">
-                            <Compass className="h-3.5 w-3.5 text-slate-400" />
-                            Monitoring Sections:
-                          </span>
-                          <span className="font-bold text-slate-900">
-                            {isSuperRole ? "All Sections" : `${Object.keys(role.permissions?.sections || {}).length} Configured`}
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-slate-600 pt-1 border-t border-slate-200/60">
@@ -1434,50 +1312,6 @@ export function UserManagementPage() {
                   })()}
                 </div>
 
-                {/* 5. Assigned Vessels */}
-                <div className="pt-2 border-t border-slate-100">
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-xs font-bold text-slate-700">
-                      Assigned Fleet Vessels
-                    </label>
-                    <span className="text-[10px] text-slate-400">
-                      {userFormData.assigned_vessels.length} vessel(s) selected
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-1 gap-2 max-h-36 overflow-y-auto rounded-xl border border-slate-200 p-2.5 bg-slate-50/50">
-                    {(() => {
-                      const compVessels = vessels.filter(
-                        (v) => !v.companyId || v.companyId === userFormData.company_id || (v as any).company_id === userFormData.company_id,
-                      )
-                      if (compVessels.length === 0) {
-                        return <p className="text-[11px] text-slate-400 italic">No vessels registered for this company.</p>
-                      }
-                      return compVessels.map((v) => {
-                        const checked = userFormData.assigned_vessels.includes(v.id)
-                        return (
-                          <label
-                            key={v.id}
-                            className={`flex items-center justify-between rounded-lg px-2.5 py-1.5 transition cursor-pointer ${
-                              checked ? "bg-white border border-red-200 shadow-xs" : "hover:bg-slate-100/70"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => toggleVessel(v.id)}
-                                className="h-3.5 w-3.5 rounded text-[#db4040] focus:ring-[#db4040]"
-                              />
-                              <span className="text-xs font-medium text-slate-800">{v.name}</span>
-                            </div>
-                            <span className="text-[10px] text-slate-400 font-mono">{v.mmsi || v.id}</span>
-                          </label>
-                        )
-                      })
-                    })()}
-                  </div>
-                </div>
-
                 {/* 6. Account Status (Edit Mode) */}
                 {userModalMode === "edit" && (
                   <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
@@ -1703,72 +1537,6 @@ export function UserManagementPage() {
                                       featurePermissions: {
                                         ...roleFormData.featurePermissions,
                                         [feat.key]: { ...current, write: e.target.checked },
-                                      },
-                                    })
-                                  }
-                                  className="h-4 w-4 rounded text-[#db4040] focus:ring-[#db4040]"
-                                />
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* 4. Monitoring Dashboard Section Scopes */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Compass className="h-4 w-4 text-[#db4040]" />
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                      Monitoring Dashboard Section Scopes
-                    </h4>
-                  </div>
-                  <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                    <table className="w-full text-left text-xs">
-                      <thead className="border-b border-slate-100 bg-slate-50 font-bold uppercase tracking-wider text-slate-500">
-                        <tr>
-                          <th className="px-4 py-2.5">Dashboard Section</th>
-                          <th className="px-4 py-2.5 text-center w-24">Can View (Read)</th>
-                          <th className="px-4 py-2.5 text-center w-24">Can Modify (Write)</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {monitoringSections.map((sec) => {
-                          const current = roleFormData.sectionPermissions[sec.key] || { read: false, write: false }
-                          return (
-                            <tr key={sec.key} className="hover:bg-slate-50/60">
-                              <td className="px-4 py-2.5">
-                                <p className="font-semibold text-slate-800">{sec.label}</p>
-                                <p className="text-[10px] text-slate-400">{sec.desc}</p>
-                              </td>
-                              <td className="px-4 py-2.5 text-center">
-                                <input
-                                  type="checkbox"
-                                  checked={current.read}
-                                  onChange={(e) =>
-                                    setRoleFormData({
-                                      ...roleFormData,
-                                      sectionPermissions: {
-                                        ...roleFormData.sectionPermissions,
-                                        [sec.key]: { ...current, read: e.target.checked },
-                                      },
-                                    })
-                                  }
-                                  className="h-4 w-4 rounded text-[#db4040] focus:ring-[#db4040]"
-                                />
-                              </td>
-                              <td className="px-4 py-2.5 text-center">
-                                <input
-                                  type="checkbox"
-                                  checked={current.write}
-                                  onChange={(e) =>
-                                    setRoleFormData({
-                                      ...roleFormData,
-                                      sectionPermissions: {
-                                        ...roleFormData.sectionPermissions,
-                                        [sec.key]: { ...current, write: e.target.checked },
                                       },
                                     })
                                   }

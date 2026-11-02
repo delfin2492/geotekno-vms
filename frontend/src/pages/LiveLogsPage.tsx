@@ -282,12 +282,22 @@ export function LiveLogsPage() {
                   className="border-t border-slate-100 text-[10px] hover:bg-slate-50/70"
                 >
                   <td className="whitespace-nowrap px-4 py-3 font-mono text-slate-500">
-                    {new Date(log.timestamp).toLocaleTimeString("en-GB", {
-                      hour12: false,
-                    })}
-                    <div className="mt-0.5 text-[8px] text-slate-300">
-                      {new Date(log.timestamp).toLocaleDateString()}
-                    </div>
+                    {(() => {
+                      const d = new Date(log.timestamp)
+                      const isValid = !isNaN(d.getTime())
+                      return (
+                        <>
+                          <div>
+                            {isValid
+                              ? d.toLocaleTimeString("en-GB", { hour12: false })
+                              : log.timestamp || "—"}
+                          </div>
+                          <div className="mt-0.5 text-[8px] text-slate-300">
+                            {isValid ? d.toLocaleDateString("id-ID") : ""}
+                          </div>
+                        </>
+                      )
+                    })()}
                   </td>
                   <td className="px-4 py-3">
                     <div className="font-bold text-slate-700">
@@ -386,7 +396,15 @@ export function LiveLogsPage() {
                 ],
                 ["Agent", agents.find((a) => a.id === selected.agentId)?.name],
                 ["Decoder", selected.decoder],
-                ["Timestamp", new Date(selected.timestamp).toLocaleString()],
+                [
+                  "Timestamp",
+                  (() => {
+                    const d = new Date(selected.timestamp)
+                    return !isNaN(d.getTime())
+                      ? d.toLocaleString("id-ID")
+                      : selected.timestamp || "—"
+                  })(),
+                ],
               ].map(([label, value]) => (
                 <div key={label}>
                   <div className="text-slate-400">{label}</div>

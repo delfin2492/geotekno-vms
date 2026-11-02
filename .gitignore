@@ -39,3 +39,8 @@ scratch/
 backup/
 *.sql
 !backend/src/db/migrations.sql
+
+# Office / Word lock files
+~$*
+*.tmp
+~*.tmp

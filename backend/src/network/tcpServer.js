@@ -3,6 +3,7 @@ const { parseUsrFrames } = require('../parser/canFrame');
 const { FAST_PACKET_PGNS, FastPacketReassembler } = require('../parser/fastPacket');
 const { IsoTpReassembler } = require('../parser/isoTp');
 const { decodeNmea2000Payload } = require('../parser/pgnDecoders');
+const { broadcastLiveTelemetry } = require('./wsServer');
 
 function createTcpServer(config, vesselState) {
   const fastPacket = new FastPacketReassembler();
@@ -60,6 +61,7 @@ function createTcpServer(config, vesselState) {
           const decoded = decodeNmea2000Payload(targetPgn, payloadToDecode);
           if (decoded !== null) {
             vesselState.applyDecoded(targetPgn, source, decoded);
+            broadcastLiveTelemetry('vessel_c2e2cffb', vesselState.getSnapshot());
           }
         }
       }

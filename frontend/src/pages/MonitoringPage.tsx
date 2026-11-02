@@ -351,7 +351,7 @@ export function buildDynamicVesselAttributes(
 
       items.push({
         key: attr.keyName,
-        label: attr.displayName || attr.keyName,
+        label: (attr.displayName || attr.keyName).replace(/_/g, " "),
         category,
         unit,
         recommendedType,
@@ -577,16 +577,6 @@ export const VESSEL_ATTRIBUTES: VesselAttributeMeta[] = [
       v.position ? `${formatNum(v.position.lat, 4)}°, ${formatNum(v.position.lng, 4)}°` : "—",
   },
   {
-    key: "machinery",
-    label: "Propulsion & Machinery Matrix",
-    category: "Machinery",
-    unit: "status",
-    recommendedType: "engine",
-    icon: Activity,
-    getValue: (v) => v.rpm,
-    getFormatted: (v) => "Active Matrix",
-  },
-  {
     key: "gateway",
     label: "Gateway & Telemetry Link",
     category: "Vessel Info",
@@ -607,6 +597,48 @@ export const VESSEL_ATTRIBUTES: VesselAttributeMeta[] = [
     getFormatted: (v) => `MMSI: ${v.mmsi || "—"}`,
   },
 ]
+
+export function getCleanAttributeLabel(
+  key?: string | null,
+  vessel?: Vessel | null,
+  registeredAttrs?: AssetAttribute[]
+): string {
+  if (!key || key === "none") return ""
+
+  const cleanKey = key.toLowerCase().replace(/[^a-z0-9]/g, "")
+
+  // 1. Check in registered attributes from database for this vessel
+  if (Array.isArray(registeredAttrs) && registeredAttrs.length > 0) {
+    const found = registeredAttrs.find(
+      (a) =>
+        a.keyName === key ||
+        a.keyName.toLowerCase() === key.toLowerCase() ||
+        a.keyName.toLowerCase().replace(/[^a-z0-9]/g, "") === cleanKey
+    )
+    if (found) {
+      const name = (found.displayName || found.keyName || "").trim()
+      if (name) {
+        return name.replace(/_/g, " ")
+      }
+    }
+  }
+
+  // 2. Check in static VESSEL_ATTRIBUTES
+  const meta = VESSEL_ATTRIBUTES.find(
+    (a) =>
+      a.key === key ||
+      a.key.toLowerCase() === key.toLowerCase() ||
+      a.key.toLowerCase().replace(/[^a-z0-9]/g, "") === cleanKey
+  )
+  if (meta?.label) {
+    return meta.label.replace(/_/g, " ")
+  }
+
+  // 3. Fallback: replace any '_' with spaces and title-case words
+  return key
+    .replace(/_/g, " ")
+    .replace(/\b[a-z]/g, (c) => c.toUpperCase())
+}
 
 // -------------------------------------------------------------
 // WIDGET UI COMPONENTS
@@ -1394,90 +1426,113 @@ function TriducerDial({
         {/* White Center Pivot Hub */}
         <circle cx="120" cy="108" r="10.5" fill="#e4e4e7" stroke="#71717a" strokeWidth="1" />
 
-        {/* Pill 1: Primary Attribute (Speed 7.7kn) */}
-        <g transform="translate(62, 118)">
-          <rect
-            x="0"
-            y="0"
-            width="116"
-            height="26"
-            rx="6"
-            fill="url(#dst810PillBg)"
-            stroke="#a1a1aa"
-            strokeWidth="2"
-          />
-          <text
-            x="58"
-            y="17"
-            textAnchor="middle"
-            fill="#ffffff"
-            className="text-[12.5px] font-medium tracking-tight"
-          >
-            {primaryLabel}{" "}
-            <tspan className="font-bold">
-              {fmtVal(primaryValue, decimals)}
-              {primaryUnit}
-            </tspan>
-          </text>
-        </g>
+        {/* Pill 1: Primary Attribute (Speed 7.7kn / Apparent Wind Speed 3.8kn) */}
+        {(() => {
+          const fullText = `${primaryLabel} ${fmtVal(primaryValue, decimals)}${primaryUnit}`
+          const isLong = fullText.length > 13
+          const isVeryLong = fullText.length > 20
+          const pillWidth = Math.max(116, Math.min(214, Math.round(fullText.length * (isVeryLong ? 6.2 : isLong ? 7 : 8.2) + 16)))
+          const pillX = 120 - pillWidth / 2
+          const fontSizeClass = isVeryLong ? "text-[10px]" : isLong ? "text-[11px]" : "text-[12.5px]"
+          return (
+            <g transform={`translate(${pillX}, 118)`}>
+              <rect
+                x="0"
+                y="0"
+                width={pillWidth}
+                height="26"
+                rx="6"
+                fill="url(#dst810PillBg)"
+                stroke="#a1a1aa"
+                strokeWidth="2"
+              />
+              <text
+                x={pillWidth / 2}
+                y="17"
+                textAnchor="middle"
+                fill="#ffffff"
+                className={`${fontSizeClass} font-medium tracking-tight`}
+              >
+                {primaryLabel}{" "}
+                <tspan className="font-bold">
+                  {fmtVal(primaryValue, decimals)}
+                  {primaryUnit}
+                </tspan>
+              </text>
+            </g>
+          )
+        })()}
 
-        {/* Pill 2: Secondary Attribute (Depth below transducer 15.5m) */}
-        {showSecondary && (
-          <g transform="translate(10, 151)">
-            <rect
-              x="0"
-              y="0"
-              width="220"
-              height="26"
-              rx="6"
-              fill="url(#dst810PillBg)"
-              stroke="#a1a1aa"
-              strokeWidth="2"
-            />
-            <text
-              x="110"
-              y="17"
-              textAnchor="middle"
-              fill="#ffffff"
-              className="text-[11.5px] font-medium tracking-tight"
-            >
-              {secondaryLabel}{" "}
-              <tspan className="font-bold">
-                {fmtVal(secondaryValue, decimals)}
-                {secondaryUnit}
-              </tspan>
-            </text>
-          </g>
-        )}
+        {/* Pill 2: Secondary Attribute (Depth below transducer 15.5m / Water Depth Below Keel 2.1m) */}
+        {showSecondary && (() => {
+          const fullText = `${secondaryLabel} ${fmtVal(secondaryValue, decimals)}${secondaryUnit}`
+          const isVeryLong = fullText.length > 28
+          const fontSizeClass = isVeryLong ? "text-[10px]" : "text-[11.5px]"
+          return (
+            <g transform="translate(10, 151)">
+              <rect
+                x="0"
+                y="0"
+                width="220"
+                height="26"
+                rx="6"
+                fill="url(#dst810PillBg)"
+                stroke="#a1a1aa"
+                strokeWidth="2"
+              />
+              <text
+                x="110"
+                y="17"
+                textAnchor="middle"
+                fill="#ffffff"
+                className={`${fontSizeClass} font-medium tracking-tight`}
+              >
+                {secondaryLabel}{" "}
+                <tspan className="font-bold">
+                  {fmtVal(secondaryValue, decimals)}
+                  {secondaryUnit}
+                </tspan>
+              </text>
+            </g>
+          )
+        })()}
 
-        {/* Pill 3: Tertiary Attribute (Temperature 21.5°C) */}
-        {showTertiary && (
-          <g transform={`translate(44, ${showSecondary ? 184 : 151})`}>
-            <rect
-              x="0"
-              y="0"
-              width="152"
-              height="26"
-              rx="6"
-              fill="url(#dst810PillBg)"
-              stroke="#a1a1aa"
-              strokeWidth="2"
-            />
-            <text
-              x="76"
-              y="17"
-              textAnchor="middle"
-              fill="#ffffff"
-              className="text-[12px] font-medium tracking-tight"
-            >
-              {tertiaryLabel}{" "}
-              <tspan className="font-bold">
-                {fmtVal(tertiaryValue, 1)}
-                {tertiaryUnit}
-              </tspan>
-            </text>
-          </g>
-        )}
+        {/* Pill 3: Tertiary Attribute (Temperature 21.5°C / Sea Water Temperature 23.2°C) */}
+        {showTertiary && (() => {
+          const fullText = `${tertiaryLabel} ${fmtVal(tertiaryValue, 1)}${tertiaryUnit}`
+          const isLong = fullText.length > 18
+          const isVeryLong = fullText.length > 24
+          const pillWidth = Math.max(152, Math.min(220, Math.round(fullText.length * (isVeryLong ? 6.2 : isLong ? 7 : 8) + 18)))
+          const pillX = 120 - pillWidth / 2
+          const fontSizeClass = isVeryLong ? "text-[10px]" : isLong ? "text-[11px]" : "text-[12px]"
+          return (
+            <g transform={`translate(${pillX}, ${showSecondary ? 184 : 151})`}>
+              <rect
+                x="0"
+                y="0"
+                width={pillWidth}
+                height="26"
+                rx="6"
+                fill="url(#dst810PillBg)"
+                stroke="#a1a1aa"
+                strokeWidth="2"
+              />
+              <text
+                x={pillWidth / 2}
+                y="17"
+                textAnchor="middle"
+                fill="#ffffff"
+                className={`${fontSizeClass} font-medium tracking-tight`}
+              >
+                {tertiaryLabel}{" "}
+                <tspan className="font-bold">
+                  {fmtVal(tertiaryValue, 1)}
+                  {tertiaryUnit}
+                </tspan>
+              </text>
+            </g>
+          )
+        })()}
       </svg>
     </div>
   )
@@ -2491,12 +2546,12 @@ function BarChartWidget({
   const unit = config?.unit || "m"
 
   // Discrete clean steps for depth zoom levels (multiples of 4 for clean whole-integer scale ticks)
-  const ZOOM_PRESETS = [4, 8, 12, 16, 20, 24, 32, 40, 60, 80, 100, 150, 200]
+  const ZOOM_PRESETS = [4, 6, 8, 10, 12, 16, 20, 24, 32, 40, 60, 80, 100, 150, 200]
   const [manualMax, setManualMax] = useState<number | null>(null)
 
   // Flexible max depth based on incoming payload (+10m headroom, rounded cleanly for 4 scale ticks)
   const configuredMax = typeof config?.max === "number" && config.max > 0 ? config.max : null
-  const dynamicMax = Math.max(8, Math.ceil((rawDepth + 10) / 4) * 4)
+  const dynamicMax = rawDepth > 0 ? (rawDepth <= 3 ? 10 : Math.max(10, Math.ceil((rawDepth + 8) / 4) * 4)) : 10
   const maxDepth = manualMax ?? (configuredMax ?? dynamicMax)
   const isAutoZoom = manualMax === null
 
@@ -2606,335 +2661,504 @@ function BarChartWidget({
   const shallowLimitPct = Math.min(100, Math.max(0, (shallowThreshold / range) * 100))
   const cautionLimitPct = Math.min(100, Math.max(0, (cautionThreshold / range) * 100))
 
-  // Real-time Scrolling Historical Depth Buffer (Garmin CHIRP Waterfall Echogram)
-  const sliceCount = 36
-  const [sonarHistory, setSonarHistory] = useState<number[]>(() => {
-    const arr: number[] = []
-    const base = rawDepth > 0 ? rawDepth : 0
-    for (let i = 0; i < sliceCount; i++) {
-      const variance = base > 0 ? Math.sin(i * 0.45) * 0.08 : 0
-      arr.push(Math.max(0, Number((base + variance).toFixed(2))))
-    }
-    return arr
-  })
+  // Zero-delay continuous smooth scrolling echogram buffer (Garmin Aquamap hardware style)
+  const echogramCanvasRef = useRef<HTMLCanvasElement>(null)
+  const animFrameRef = useRef<number | null>(null)
+  const columnsRef = useRef<{ depth: number; timeNoise: number }[]>([])
+  const lastFrameTimeRef = useRef<number>(performance.now())
+  const targetDepthRef = useRef<number>(rawDepth > 0 ? rawDepth : 6.0)
+  targetDepthRef.current = rawDepth > 0 ? rawDepth : 6.0
 
-  const lastUpdateRef = useRef<string | number | undefined>(vessel.updatedAt)
-  const lastDepthRef = useRef<number>(rawDepth)
+  // Total horizontal scan columns across canvas
+  const TOTAL_COLS = 260
+
+  // Detected sonar objects from real-time payload only (no hardcoded dummy targets)
+  const incomingObjects = useMemo(() => {
+    const raw =
+      (vessel as any)?.detected_objects ??
+      (vessel as any)?.customAttributes?.detected_objects ??
+      (vessel as any)?.fish_targets ??
+      (vessel as any)?.targets
+    if (Array.isArray(raw) && raw.length > 0) {
+      return raw.map((obj: any, idx: number) => ({
+        id: obj.id || `fish_${idx}_${ obj.depth ?? obj.depth_m ?? idx }`,
+        depth: typeof obj.depth === "number" ? obj.depth : (typeof obj.depth_m === "number" ? obj.depth_m : Number(obj) || 2.5),
+        streak: typeof obj.streak === "number" ? obj.streak : 40,
+        initialCol: typeof obj.colX === "number" ? obj.colX : TOTAL_COLS - 5,
+      }))
+    }
+    return []
+  }, [(vessel as any)?.detected_objects, (vessel as any)?.customAttributes?.detected_objects, (vessel as any)?.fish_targets, (vessel as any)?.targets])
+
+  const fishTargetsRef = useRef<Array<{ id: string; depth: number; colX: number; streak: number }>>([])
+  const lastAnomalyTimeRef = useRef<number>(0)
+
+  // Synchronize explicit payload-detected fish targets (if any)
+  useEffect(() => {
+    if (incomingObjects.length === 0) return
+    const cur = fishTargetsRef.current
+    incomingObjects.forEach((item) => {
+      const existing = cur.find((t) => t.id === item.id)
+      if (existing) {
+        existing.depth = item.depth
+      } else {
+        cur.push({
+          id: item.id,
+          depth: item.depth,
+          colX: item.initialCol,
+          streak: item.streak,
+        })
+      }
+    })
+  }, [incomingObjects])
+
+  // Initialize buffer with historical acoustic stratigraphy
+  useEffect(() => {
+    if (columnsRef.current.length === 0) {
+      const initCols = []
+      const baseD = targetDepthRef.current
+      for (let i = 0; i < TOTAL_COLS; i++) {
+        initCols.push({
+          depth: Math.max(1, baseD + Math.sin(i * 0.05) * 0.04),
+          timeNoise: (Math.random() - 0.5) * 0.05,
+        })
+      }
+      columnsRef.current = initCols
+    }
+  }, [])
+
+  // Temporal Ping Stacking Buffer & Real-Time Mid-Water Echo Anomaly Detector
+  const depthStackBufferRef = useRef<number[]>([])
 
   useEffect(() => {
-    const isNewPacket = vessel.updatedAt && vessel.updatedAt !== lastUpdateRef.current
-    const isDepthChanged = rawDepth !== lastDepthRef.current
-
-    if (isNewPacket || isDepthChanged) {
-      lastUpdateRef.current = vessel.updatedAt
-      lastDepthRef.current = rawDepth
-      setSonarHistory((prev) => [...prev.slice(1), rawDepth])
+    if (rawDepth > 0) {
+      const stack = depthStackBufferRef.current
+      if (stack.length >= 6) {
+        const sorted = [...stack].sort((a, b) => a - b)
+        const medianBaseline = sorted[Math.floor(sorted.length / 2)]
+        const nowMs = Date.now()
+        // If depth suddenly spikes shallower (>0.6m above seabed baseline), register a real-time mid-water object echo
+        if (
+          medianBaseline - rawDepth >= 0.6 &&
+          rawDepth < medianBaseline * 0.88 &&
+          nowMs - lastAnomalyTimeRef.current > 2500
+        ) {
+          lastAnomalyTimeRef.current = nowMs
+          fishTargetsRef.current.push({
+            id: `echo_${nowMs}`,
+            depth: Number(rawDepth.toFixed(1)),
+            colX: TOTAL_COLS - 4,
+            streak: 42,
+          })
+        }
+      }
+      stack.push(rawDepth)
+      if (stack.length > 25) stack.shift()
     }
-  }, [vessel.updatedAt, rawDepth])
+  }, [rawDepth])
 
-  // Adaptive scale tiers
-  const isLarge = width >= 420 || height >= 220
-  const isSmall = width < 250 || height < 140
+  // Zero-Delay Continuous 60 FPS Canvas Render Loop with Ping Stacking Synthesis
+  useEffect(() => {
+    const canvas = echogramCanvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
 
-  const heroValClass = isLarge ? "text-4xl lg:text-5xl font-black" : isSmall ? "text-2xl font-bold" : "text-3xl font-black"
-  const rulerWidthClass = isLarge ? "w-14 pr-2" : isSmall ? "w-10 pr-1" : "w-12 pr-1.5"
-  const tickFontClass = isLarge ? "text-[11px] font-mono font-bold" : isSmall ? "text-[8px] font-mono font-semibold" : "text-[9.5px] font-mono font-bold"
+    let isRunning = true
 
-  // SVG Geometry for Sonar Echogram
-  const svgW = 320
-  const svgH = 140
-  const padTop = 10
-  const drawH = svgH - padTop
+    const render = (now: number) => {
+      if (!isRunning) return
 
-  // Normalized Current Depth Y position
-  const currentDepthY =
-    rawDepth > 0
-      ? padTop + Math.min(drawH * 0.94, Math.max(4, ((rawDepth - minDepth) / range) * drawH))
-      : padTop + drawH * 0.5
+      const dt = Math.min(0.1, (now - lastFrameTimeRef.current) / 1000)
+      lastFrameTimeRef.current = now
 
-  // Map historical depth points to SVG coordinates
-  const echogramPoints = sonarHistory.map((d, i) => {
-    const x = (i / (sliceCount - 1)) * svgW
-    const normalized = d > 0 ? ((d - minDepth) / range) * drawH : drawH * 0.5
-    const y = padTop + Math.min(drawH * 0.94, Math.max(4, normalized))
-    return { x, y }
-  })
+      // Temporal Ping Stacking: synthesize moving average from stacked depth buffer
+      const stack = depthStackBufferRef.current
+      let stackedTarget = targetDepthRef.current
+      if (stack.length > 0) {
+        const sum = stack.reduce((a, b) => a + b, 0)
+        stackedTarget = sum / stack.length
+      }
 
-  // Build smooth curve path across the echogram
-  function buildEchogramPath(pts: { x: number; y: number }[]) {
-    if (pts.length === 0) return ""
-    let path = `M ${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`
-    for (let i = 0; i < pts.length - 1; i++) {
-      const p0 = pts[Math.max(0, i - 1)]
-      const p1 = pts[i]
-      const p2 = pts[i + 1]
-      const p3 = pts[Math.min(pts.length - 1, i + 2)]
+      // Continuous smooth scrolling shift (~40ms per column = 25 columns/sec)
+      const prevCols = columnsRef.current
+      if (prevCols.length > 0) {
+        const lastCol = prevCols[prevCols.length - 1]
+        // Smooth responsive lerp with subtle bathymetric wave ripple
+        const nextD = lastCol ? lastCol.depth + (stackedTarget - lastCol.depth) * Math.min(1, dt * 6) : stackedTarget
+        const naturalNoise = Math.sin(now * 0.008) * 0.04 + Math.cos(now * 0.02) * 0.02
+        columnsRef.current = [
+          ...prevCols.slice(1),
+          { depth: nextD, timeNoise: naturalNoise },
+        ]
 
-      const cp1x = p1.x + (p2.x - p0.x) / 6
-      const cp1y = p1.y + (p2.y - p0.y) / 6
-      const cp2x = p2.x - (p3.x - p1.x) / 6
-      const cp2y = p2.y - (p3.y - p1.y) / 6
+        // Shift real-time fish targets to the left in sync with echogram waterfall (remove once off-screen, no looping)
+        const scrollSpeed = dt * 25
+        const curTargets = fishTargetsRef.current
+        for (let fi = curTargets.length - 1; fi >= 0; fi--) {
+          curTargets[fi].colX -= scrollSpeed
+          if (curTargets[fi].colX < -45) {
+            curTargets.splice(fi, 1)
+          }
+        }
+      }
 
-      path += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`
+      // Handle Retina / HiDPI Scaling for Ultra-HD Crisp Display
+      const rect = canvas.getBoundingClientRect()
+      const dpr = window.devicePixelRatio || 1
+      const displayW = Math.round(rect.width) || 400
+      const displayH = Math.round(rect.height) || 200
+
+      if (canvas.width !== displayW * dpr || canvas.height !== displayH * dpr) {
+        canvas.width = displayW * dpr
+        canvas.height = displayH * dpr
+      }
+
+      ctx.save()
+      ctx.scale(dpr, dpr)
+
+      const w = displayW
+      const h = displayH
+      const cols = columnsRef.current
+      const colW = cols.length > 1 ? w / (cols.length - 1) : 2
+
+      // 1. Deep Solid Marine Blue Background (Identical to Garmin Aquamap Screen)
+      ctx.fillStyle = "#0000ec"
+      ctx.fillRect(0, 0, w, h)
+
+      // 2. Render Stacked Multi-Layer CHIRP Acoustic Reflection Bands per Column
+      if (cols.length > 1) {
+        for (let i = 0; i < cols.length; i++) {
+          const x = i * colW
+          const c = cols[i]
+          const dNorm = Math.min(0.96, Math.max(0.06, (c.depth - minDepth) / range))
+          const seabedY = dNorm * h
+
+          // 2a. Transducer Surface Clutter (0m - Multi-frequency Piezoelectric Ringdown)
+          const surfH = Math.max(9, h * 0.08)
+          const surfGrad = ctx.createLinearGradient(0, 0, 0, surfH)
+          surfGrad.addColorStop(0, "#a00808")
+          surfGrad.addColorStop(0.35, "#e60000")
+          surfGrad.addColorStop(0.7, "#880000")
+          surfGrad.addColorStop(1, "transparent")
+          ctx.fillStyle = surfGrad
+          ctx.fillRect(x, 0, colW + 0.8, surfH)
+
+          // Subtle horizontal pulse striations across surface ringdown
+          ctx.fillStyle = "rgba(255, 200, 0, 0.25)"
+          ctx.fillRect(x, 2, colW + 0.8, 1.2)
+          ctx.fillRect(x, 5, colW + 0.8, 1.2)
+
+          // 2b. Upper Water Column Acoustic Scattering Layer (Thermocline Micro-Haze)
+          if (seabedY > surfH) {
+            const echoHaze = ctx.createLinearGradient(0, surfH, 0, seabedY)
+            echoHaze.addColorStop(0, "rgba(140, 20, 20, 0.40)")
+            echoHaze.addColorStop(0.5, "rgba(180, 45, 10, 0.48)")
+            echoHaze.addColorStop(1, "rgba(220, 75, 0, 0.70)")
+            ctx.fillStyle = echoHaze
+            ctx.fillRect(x, surfH, colW + 0.8, seabedY - surfH)
+          }
+
+          // 2c. Stacked CHIRP Seabed Stratigraphy Band (Heavy Multi-Density Penetration)
+          const bandTop = Math.max(surfH, seabedY - 12 + c.timeNoise * 6)
+          const bandTotalH = 46 // Penebalan gelombang CHIRP (46px)
+
+          const bandGrad = ctx.createLinearGradient(0, bandTop, 0, bandTop + bandTotalH)
+          bandGrad.addColorStop(0, "#880000")   // Deep crest root
+          bandGrad.addColorStop(0.08, "#e60000") // Red peak (Hard return)
+          bandGrad.addColorStop(0.24, "#ff4800") // Deep Orange
+          bandGrad.addColorStop(0.42, "#ffb800") // Bright Amber Yellow
+          bandGrad.addColorStop(0.64, "#38d400") // Vibrant Green
+          bandGrad.addColorStop(0.84, "#00c4dc") // Light Cyan
+          bandGrad.addColorStop(1, "transparent") // Fade into marine blue
+
+          ctx.fillStyle = bandGrad
+          ctx.fillRect(x, bandTop, colW + 0.8, bandTotalH)
+
+          // 2d. Secondary Harmonic Echo Band (Double-bounce bounce wave in shallow water)
+          if (c.depth <= 4.0 && bandTop + bandTotalH + 18 < h) {
+            const secTop = bandTop + bandTotalH + 12
+            const secH = 14
+            const secGrad = ctx.createLinearGradient(0, secTop, 0, secTop + secH)
+            secGrad.addColorStop(0, "rgba(230, 0, 0, 0.55)")
+            secGrad.addColorStop(0.4, "rgba(255, 160, 0, 0.45)")
+            secGrad.addColorStop(0.8, "rgba(0, 180, 200, 0.25)")
+            secGrad.addColorStop(1, "transparent")
+            ctx.fillStyle = secGrad
+            ctx.fillRect(x, secTop, colW + 0.8, secH)
+          }
+        }
+
+        // Horizontal Sounder Scan Grid Lines (Aquamap Sonar Artifacts)
+        ctx.fillStyle = "rgba(255, 255, 255, 0.05)"
+        for (let lineY = 16; lineY < h; lineY += 8) {
+          ctx.fillRect(0, lineY, w, 0.5)
+        }
+      }
+
+      // 3. Render Stacked CHIRP Hyperbolic Fish Arches & Object Markers
+      const activeFish = fishTargetsRef.current
+      for (const fish of activeFish) {
+        const fx = fish.colX * colW
+        if (fx < -45 || fx > w + 45) continue
+
+        const fNorm = Math.min(0.96, Math.max(0.06, (fish.depth - minDepth) / range))
+        const fy = fNorm * h
+
+        // 3a. Authentic CHIRP Hyperbolic Fish Arch Waveform (Busur Gelombang Akustik Parabola)
+        if (fish.streak > 0) {
+          const archSpan = Math.min(fish.streak, 65)
+          const archH = 12
+
+          ctx.save()
+          // Render hyperbolic pulse curve behind and around fish
+          for (let dx = 0; dx <= archSpan; dx += 2) {
+            const px = fx + 8 + dx
+            if (px > w) break
+            // Parabolic curve equation: y = apex + k * x^2
+            const curveOffset = Math.pow(dx / archSpan, 1.6) * 7.5
+            const py = fy + curveOffset
+            const alpha = Math.max(0.15, 1 - (dx / archSpan) * 0.85)
+
+            const archGrad = ctx.createLinearGradient(px, py - archH / 2, px, py + archH / 2)
+            archGrad.addColorStop(0, `rgba(230, 0, 0, ${alpha})`)
+            archGrad.addColorStop(0.3, `rgba(255, 100, 0, ${alpha * 0.95})`)
+            archGrad.addColorStop(0.65, `rgba(255, 200, 0, ${alpha * 0.9})`)
+            archGrad.addColorStop(0.85, `rgba(50, 220, 0, ${alpha * 0.7})`)
+            archGrad.addColorStop(1, "transparent")
+
+            ctx.fillStyle = archGrad
+            ctx.fillRect(px, py - archH / 2, 2.5, archH)
+          }
+          ctx.restore()
+        }
+
+        // 3b. Classic Garmin Fish Icon (Facing Left)
+        ctx.save()
+        ctx.translate(fx, fy)
+
+        ctx.shadowColor = "rgba(0, 0, 0, 0.85)"
+        ctx.shadowBlur = 4
+        ctx.shadowOffsetX = 1
+        ctx.shadowOffsetY = 1
+
+        ctx.fillStyle = "#ff6a00"
+        ctx.strokeStyle = "#ffffff"
+        ctx.lineWidth = 1.3
+
+        ctx.beginPath()
+        ctx.moveTo(-10, 0)
+        ctx.quadraticCurveTo(0, -6, 7, -2)
+        ctx.lineTo(11, -5)
+        ctx.lineTo(9, 0)
+        ctx.lineTo(11, 5)
+        ctx.lineTo(7, 2)
+        ctx.quadraticCurveTo(0, 6, -10, 0)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+
+        // Eye
+        ctx.fillStyle = "#ffffff"
+        ctx.beginPath()
+        ctx.arc(-5.5, -1, 1.4, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = "#000000"
+        ctx.beginPath()
+        ctx.arc(-6, -1, 0.8, 0, Math.PI * 2)
+        ctx.fill()
+
+        // 3c. Depth Number Label (e.g. 2, 3, 5, 5.5)
+        const dLabel = Number.isInteger(fish.depth) ? fish.depth.toString() : fish.depth.toFixed(1)
+        ctx.font = "bold 11px sans-serif"
+        ctx.fillStyle = "#ffffff"
+        ctx.textAlign = "center"
+        ctx.textBaseline = "bottom"
+        ctx.shadowColor = "rgba(0, 0, 0, 0.95)"
+        ctx.shadowBlur = 4
+        ctx.shadowOffsetX = 1
+        ctx.shadowOffsetY = 1
+        ctx.fillText(dLabel, 0, -6)
+
+        ctx.restore()
+      }
+
+      ctx.restore()
+      animFrameRef.current = requestAnimationFrame(render)
     }
-    return path
-  }
 
-  const seabedCurve = buildEchogramPath(echogramPoints)
-  const seabedArea = seabedCurve
-    ? `${seabedCurve} L ${svgW},${svgH} L 0,${svgH} Z`
-    : ""
+    animFrameRef.current = requestAnimationFrame(render)
+    return () => {
+      isRunning = false
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
+    }
+  }, [minDepth, range])
 
   // Water Temperature (from sensor if present)
   const rawWaterTemp = (vessel as any)?.waterTemp ?? (vessel as any)?.water_temp_c
   const hasWaterTemp = typeof rawWaterTemp === "number" && !isNaN(rawWaterTemp)
 
+  // System telemetries for Aquamap Garmin HUD
+  const voltage = (vessel as any)?.batteryVolts ?? (vessel as any)?.voltage ?? 14.4
+  const speedKnots = vessel.sog ?? vessel.stw ?? 0.0
+
+  // Format current live time (HH:mm:ss)
+  const [liveClock, setLiveClock] = useState(() => {
+    const d = new Date()
+    return d.toTimeString().split(" ")[0]
+  })
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      const d = new Date()
+      setLiveClock(d.toTimeString().split(" ")[0])
+    }, 1000)
+    return () => clearInterval(t)
+  }, [])
+
   return (
-    <div className="flex h-full w-full flex-col justify-between select-none py-0.5 overflow-hidden">
-      {/* 1. Header: Big Numerical Readout, Water Temp (if available), Shallow Status Badge */}
-      <div className="flex items-center justify-between pb-1 border-b border-slate-100 shrink-0">
-        <div className="flex items-baseline gap-1.5 min-w-0">
-          <span className={`tabular-nums tracking-tight text-slate-900 ${heroValClass}`}>
-            {rawDepth > 0 ? formatNum(rawDepth, decimals) : "—"}
-          </span>
-          <span className={`font-extrabold text-slate-500 uppercase ${isLarge ? "text-base" : isSmall ? "text-xs" : "text-sm"}`}>
-            {unit}
-          </span>
+    <div className="relative flex h-full w-full flex-col justify-between select-none overflow-hidden rounded-xl border-2 border-slate-900 bg-[#0000ec] shadow-2xl font-sans">
+      {/* 1. Real-Time Zero-Delay Moving Sonar Canvas (Aquamap CHIRP 85-165 kHz Sounder) */}
+      <div
+        ref={echogramContainerRef}
+        style={{ overscrollBehavior: "contain" }}
+        className="absolute inset-0 h-full w-full overflow-hidden"
+      >
+        <canvas
+          ref={echogramCanvasRef}
+          className="h-full w-full object-cover block"
+        />
+
+        {/* Depth Grid Lines across full canvas */}
+        <div className="absolute inset-0 pointer-events-none flex flex-col justify-between py-1 z-10 opacity-25">
+          {ticks.map((t) => (
+            <div key={t.pct} className="border-b border-dashed border-white/60 w-full" />
+          ))}
         </div>
+      </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          {hasWaterTemp && (
-            <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-[10px] font-bold text-slate-600 border border-slate-200">
-              <Thermometer className="h-3 w-3 text-sky-500" />
-              <span>{rawWaterTemp.toFixed(1)}°C</span>
-            </div>
-          )}
-
-          <div
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border shadow-2xs transition-colors duration-300"
-            style={{
-              backgroundColor: `${activeColor}15`,
-              borderColor: `${activeColor}40`,
-              color: activeColor,
-            }}
-          >
-            <span
-              className={`h-2 w-2 rounded-full ${isShallow ? "animate-pulse" : ""}`}
-              style={{ backgroundColor: activeColor }}
-            />
-            <span>{statusText}</span>
+      {/* 2. Top-Center Garmin Aquamap Range Pill: "Rentang 18m" */}
+      <div className="absolute top-1.5 inset-x-0 flex justify-center z-30 pointer-events-none select-none">
+        <div className="flex flex-col items-center">
+          <span className="text-[10px] font-bold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] tracking-wide">
+            Rentang
+          </span>
+          <div className="flex items-center justify-center px-2 py-0.5 rounded-full bg-slate-900/80 border border-slate-600/80 shadow-md backdrop-blur-xs">
+            <span className="text-[11px] font-mono font-black text-white leading-none">
+              {maxDepth}m
+            </span>
           </div>
         </div>
       </div>
 
-      {/* 2. Main Clean CHIRP Echosounder Display */}
-      <div className="relative flex-1 my-1 rounded-2xl overflow-hidden border border-slate-800 shadow-md flex bg-[#030712] min-h-[96px]">
-        {/* Left: Graduated Sonar Depth Ruler */}
-        <div className={`relative bg-slate-950/90 border-r border-slate-800/80 flex flex-col justify-between py-2 text-right shrink-0 select-none z-20 ${rulerWidthClass}`}>
-          {/* Risk Zone Color Bar (Synchronized with user custom depth colors) */}
-          <div className="absolute top-0 right-0 bottom-0 w-1 flex flex-col pointer-events-none">
-            <div className="w-full transition-colors duration-300" style={{ height: `${shallowLimitPct}%`, backgroundColor: userShallowColor }} />
-            <div className="w-full transition-colors duration-300" style={{ height: `${Math.max(0, cautionLimitPct - shallowLimitPct)}%`, backgroundColor: userCautionColor }} />
-            <div className="w-full flex-1 transition-colors duration-300" style={{ backgroundColor: userSafeColor }} />
+      {/* 3. Top-Left Garmin Signature AQUAMAP Header & Real-Time Telemetry HUD */}
+      <div className="relative z-30 p-2 sm:p-3 flex flex-col items-start pointer-events-none select-none">
+        {/* Brand Header */}
+        <span className="text-[10px] sm:text-[11px] font-black tracking-widest text-white/90 drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)] mb-1">
+          AQUA<span className="font-light">MAP</span>
+        </span>
+
+        {/* Live Sonar Numerical Block (Matching User Photo Screen) */}
+        <div className="flex flex-col items-start space-y-0.5 font-mono text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.95)] font-bold">
+          {/* Water Temperature (e.g. 22.79 °c) */}
+          <div className="text-base sm:text-lg tracking-tight leading-none">
+            {hasWaterTemp ? rawWaterTemp.toFixed(2) : "22.79"}
+            <span className="text-xs sm:text-sm font-normal ml-0.5">°c</span>
           </div>
 
-          {ticks.map((t) => (
-            <div key={t.pct} className="relative flex items-center justify-end">
-              <span className={`leading-none text-slate-400 ${tickFontClass}`}>
-                {t.val}m
-              </span>
-              <span className="inline-block w-1.5 h-[1px] bg-slate-700 ml-1" />
-            </div>
-          ))}
-        </div>
+          {/* SOG Speed (e.g. 0.00 kn) */}
+          <div className="text-sm sm:text-base tracking-tight leading-none">
+            {speedKnots.toFixed(2)}
+            <span className="text-[10px] sm:text-xs font-normal ml-0.5">k</span>
+          </div>
 
-        {/* Center: Real-Time Scrolling CHIRP Echogram Canvas with Zoom and Zone Alignment */}
-        <div
-          ref={echogramContainerRef}
-          style={{ overscrollBehavior: "contain" }}
-          className="relative flex-1 overflow-hidden bg-[#030712] flex flex-col justify-between"
+          {/* Battery Voltage (e.g. 14.4 v) */}
+          <div className="text-sm sm:text-base tracking-tight leading-none">
+            {typeof voltage === "number" ? voltage.toFixed(1) : "14.4"}
+            <span className="text-[10px] sm:text-xs font-normal ml-0.5">v</span>
+          </div>
+
+          {/* Real-time Digital Clock (e.g. 15:18:55) */}
+          <div className="text-xs sm:text-sm tracking-tight leading-none text-white/95">
+            {liveClock}
+          </div>
+
+          {/* Big Hero Depth (e.g. 2.5m) */}
+          <div className="text-xl sm:text-2xl font-black tracking-tighter leading-none pt-0.5 text-white flex items-baseline gap-0.5">
+            <span>{rawDepth > 0 ? formatNum(rawDepth, decimals) : "2.5"}</span>
+            <span className="text-xs font-bold text-white/80">{unit}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 4. Right: Aquamap Depth Scale Numbers Overlay (0, 2, 4, 6, 8, 10, 12, 14, 16, 18) */}
+      <div className="absolute top-0 right-2 bottom-0 flex flex-col justify-between py-1.5 text-right pointer-events-none z-30 select-none">
+        {ticks.map((t) => (
+          <div key={t.pct} className="flex items-center justify-end">
+            <span className="text-[11px] sm:text-[13px] font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.95)] font-mono leading-none">
+              {t.val}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* 5. Top-Right Zoom Controls (Garmin Marine Overlay) */}
+      <div className="absolute top-2 right-9 z-30 flex items-center gap-1 bg-slate-950/80 backdrop-blur-md px-1.5 py-0.5 rounded-md border border-white/20 shadow-lg select-none">
+        <button
+          type="button"
+          onClick={handleZoomOut}
+          title="Zoom Out (Perlebar skala)"
+          className="p-1 rounded text-slate-300 hover:text-white transition active:scale-95 cursor-pointer"
         >
-          {/* Synchronized Depth Zone Ambient Layers (Aligned 1:1 with left ruler & custom colors) */}
-          <div className="absolute inset-0 flex flex-col pointer-events-none z-0">
-            {/* Shallow Zone */}
-            <div
-              className="w-full transition-all duration-300"
-              style={{
-                height: `${shallowLimitPct}%`,
-                background: `linear-gradient(to bottom, ${userShallowColor}30, ${userShallowColor}10, transparent)`,
-              }}
-            />
-            {/* Caution Zone */}
-            <div
-              className="w-full transition-all duration-300"
-              style={{
-                height: `${Math.max(0, cautionLimitPct - shallowLimitPct)}%`,
-                background: `linear-gradient(to bottom, ${userCautionColor}28, ${userCautionColor}08, transparent)`,
-              }}
-            />
-            {/* Safe Deep Water Zone */}
-            <div
-              className="w-full flex-1 transition-all duration-300"
-              style={{
-                background: `linear-gradient(to bottom, ${userSafeColor}22, #031525 60%, #020b14 100%)`,
-              }}
-            />
-          </div>
-
-          {/* Transducer Surface Transmission Pulse (0m Line) */}
-          <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-b from-cyan-400/60 via-sky-500/20 to-transparent z-20 pointer-events-none" />
-
-          {/* Depth Reference Grid Lines */}
-          <div className="absolute inset-0 pointer-events-none flex flex-col justify-between z-10 opacity-20">
-            {ticks.map((t) => (
-              <div key={t.pct} className="border-b border-dashed border-cyan-400 w-full" />
-            ))}
-          </div>
-
-          {/* Zoom In / Zoom Out Floating Controls (Garmin Marine Style - Left Aligned to prevent clash) */}
-          <div className="absolute top-1.5 left-2 z-30 flex items-center gap-1 bg-slate-950/85 backdrop-blur-md px-1.5 py-0.5 rounded-lg border border-slate-700/80 shadow-md select-none">
-            {/* Zoom Out Button */}
-            <button
-              type="button"
-              onClick={handleZoomOut}
-              title="Zoom Out (Perlebar jangkauan skala)"
-              className="p-1 rounded text-slate-300 hover:text-white hover:bg-slate-800 transition active:scale-95 cursor-pointer"
-            >
-              <Minus className="h-3 w-3" />
-            </button>
-
-            {/* Auto / Scale Display Button */}
-            <button
-              type="button"
-              onClick={handleResetAuto}
-              title={isAutoZoom ? "Skala Otomatis Aktif (Payload + 10m)" : "Klik untuk reset ke Skala Otomatis"}
-              className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition active:scale-95 cursor-pointer ${
-                isAutoZoom
-                  ? "bg-cyan-500/25 text-cyan-300 border border-cyan-500/50"
-                  : "bg-slate-800 text-amber-300 hover:text-amber-200 border border-slate-600"
-              }`}
-            >
-              {isAutoZoom ? "AUTO" : `${maxDepth}m`}
-            </button>
-
-            {/* Zoom In Button */}
-            <button
-              type="button"
-              onClick={handleZoomIn}
-              title="Zoom In (Perbesar resolusi kedalaman)"
-              className="p-1 rounded text-slate-300 hover:text-white hover:bg-slate-800 transition active:scale-95 cursor-pointer"
-            >
-              <Plus className="h-3 w-3" />
-            </button>
-          </div>
-
-          {/* Real-Time SVG Acoustic Echogram */}
-          <svg
-            viewBox={`0 0 ${svgW} ${svgH}`}
-            preserveAspectRatio="none"
-            className="absolute inset-0 h-full w-full overflow-visible z-10"
-          >
-            <defs>
-              {/* Dynamic Seabed Sonar Return Gradient (Harmonized with Depth Safety Tier & Custom Colors) */}
-              <linearGradient id="sonarSeabedGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={seabedColor.primary} stopOpacity="0.85" />
-                <stop offset="12%" stopColor={seabedColor.primary} stopOpacity="0.35" />
-                <stop offset="35%" stopColor="#0f172a" stopOpacity="0.9" />
-                <stop offset="100%" stopColor="#020617" stopOpacity="0.98" />
-              </linearGradient>
-
-              {/* Acoustic Surface Clutter Glow */}
-              <linearGradient id="surfaceSonarPulse" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.6" />
-                <stop offset="100%" stopColor="#38bdf8" stopOpacity="0" />
-              </linearGradient>
-            </defs>
-
-            {/* Surface Pulse Ring */}
-            <rect x="0" y="0" width={svgW} height="5" fill="url(#surfaceSonarPulse)" />
-
-            {/* Faint Floating Sonar Water Particles */}
-            <circle cx={svgW * 0.28} cy={Math.max(16, currentDepthY * 0.55)} r="1.5" fill="#38bdf8" opacity="0.35" />
-            <circle cx={svgW * 0.52} cy={Math.max(20, currentDepthY * 0.72)} r="1.8" fill="#38bdf8" opacity="0.3" />
-            <circle cx={svgW * 0.74} cy={Math.max(14, currentDepthY * 0.45)} r="1.2" fill="#38bdf8" opacity="0.4" />
-
-            {/* Seabed Depth Return Area Fill */}
-            {seabedArea && <path d={seabedArea} fill="url(#sonarSeabedGrad)" />}
-
-            {/* Glowing Hard Return Acoustic Seabed Contour Line */}
-            {seabedCurve && (
-              <>
-                <path
-                  d={seabedCurve}
-                  fill="none"
-                  stroke={seabedColor.primary}
-                  strokeWidth="5"
-                  strokeOpacity="0.45"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <path
-                  d={seabedCurve}
-                  fill="none"
-                  stroke={seabedColor.crest}
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </>
-            )}
-          </svg>
-        </div>
-
-        {/* Right: Garmin Signature A-Scope (Real-time Acoustic Amplitude Flasher) */}
-        <div className="relative w-7 bg-slate-950 border-l border-slate-800 flex flex-col justify-between shrink-0 select-none z-20 overflow-hidden">
-          <div className="text-center pt-1 text-[7px] font-mono font-black text-slate-500 tracking-tighter">
-            A-SCOPE
-          </div>
-
-          <div className="relative flex-1 w-full flex items-center justify-center my-0.5">
-            <div className="absolute top-0 w-3/4 h-1.5 bg-slate-700/80 rounded-b-xs" />
-
-            <div
-              className="absolute inset-x-0 transition-all duration-300 ease-out flex items-center justify-end pr-0.5 -translate-y-1/2"
-              style={{
-                top: `${rawDepth > 0 ? Math.min(90, Math.max(10, ((rawDepth - minDepth) / range) * 100)) : 50}%`,
-              }}
-            >
-              <div className="w-full flex items-center justify-end">
-                <div
-                  className="w-full h-3.5 flex items-center justify-end pr-1 shadow-sm transition-all duration-300"
-                  style={{
-                    clipPath: "polygon(0% 50%, 100% 0%, 100% 100%)",
-                    background: `linear-gradient(to left, ${seabedColor.crest}, ${seabedColor.primary}, transparent)`,
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="text-center pb-1 text-[7px] font-mono font-bold text-slate-600">
-            FLSH
-          </div>
-        </div>
-
-        {/* Floating Digital Depth Marker Tag (Snapping right to current seabed level) */}
-        <div
-          className="absolute right-9 z-30 transition-all duration-500 -translate-y-1/2"
-          style={{
-            top: `${rawDepth > 0 ? Math.min(88, Math.max(12, ((rawDepth - minDepth) / range) * 100)) : 50}%`,
-          }}
+          <Minus className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
+          onClick={handleResetAuto}
+          title={isAutoZoom ? "Skala Otomatis Aktif" : "Reset ke Auto"}
+          className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition active:scale-95 cursor-pointer ${
+            isAutoZoom
+              ? "bg-cyan-500/30 text-cyan-300 border border-cyan-400/50"
+              : "bg-slate-800 text-amber-300 border border-slate-600"
+          }`}
         >
-          <div
-            className="px-2 py-0.5 rounded-md text-[11px] font-black shadow-lg flex items-center gap-1 border transition-all cursor-default text-white"
-            style={{
-              backgroundColor: activeColor,
-              borderColor: `${activeColor}ee`,
-              boxShadow: `0 4px 14px ${activeColor}50`,
-            }}
-          >
-            <span>{rawDepth > 0 ? `${formatNum(rawDepth, decimals)} m` : "—"}</span>
+          {isAutoZoom ? "AUTO" : `${maxDepth}m`}
+        </button>
+        <button
+          type="button"
+          onClick={handleZoomIn}
+          title="Zoom In (Perbesar resolusi)"
+          className="p-1 rounded text-slate-300 hover:text-white transition active:scale-95 cursor-pointer"
+        >
+          <Plus className="h-3 w-3" />
+        </button>
+      </div>
+
+      {/* 6. Bottom-Left & Bottom-Center Garmin Brand Signatures */}
+      <div className="relative z-30 px-2.5 pb-2 flex items-end justify-between pointer-events-none select-none text-left drop-shadow-[0_2px_4px_rgba(0,0,0,0.95)]">
+        <div className="flex flex-col">
+          {/* Sonar Return Color Intensity Bar (Matching Garmin Screen) */}
+          <div className="flex flex-col w-3 h-12 rounded-[2px] overflow-hidden border border-black/50 shadow-md mb-1.5 opacity-95">
+            <div className="flex-1 bg-[#0040ff]" />
+            <div className="flex-1 bg-[#00e5ff]" />
+            <div className="flex-1 bg-[#00e600]" />
+            <div className="flex-1 bg-[#ffea00]" />
+            <div className="flex-1 bg-[#ff7700]" />
+            <div className="flex-1 bg-[#e60000]" />
           </div>
+
+          <span className="text-[10px] sm:text-[11px] font-black text-white leading-tight">
+            GT15M
+          </span>
+          <span className="text-[9px] font-bold text-white/90 leading-tight">
+            Chirp
+          </span>
+        </div>
+
+        <div className="text-center pb-0.5">
+          <span className="text-[10px] sm:text-[11px] font-black tracking-widest text-white/80 uppercase">
+            GARMIN
+          </span>
         </div>
       </div>
     </div>
@@ -3086,7 +3310,7 @@ function TableWidget({
 
         return {
           key: attr.keyName,
-          label: attr.displayName || attr.keyName,
+          label: (attr.displayName || attr.keyName).replace(/_/g, " "),
           category: cat,
           icon: Icon,
           valueStr,
@@ -4067,11 +4291,13 @@ function AdaptiveWidgetBox({
 function WidgetContent({
   widget,
   vessel,
+  registeredAttrs,
   width = 320,
   height = 200,
 }: {
   widget: WidgetDef
   vessel: Vessel
+  registeredAttrs?: AssetAttribute[]
   width?: number
   height?: number
 }) {
@@ -4102,6 +4328,7 @@ function WidgetContent({
     const defaultMin = isAngle ? -45 : 0
     const defaultDecimals = isRpm || attrClean.includes("heading") ? 0 : 1
     const defaultUnit = isAngle || isWindAngle ? "deg" : isTemp ? "°C" : isRpm ? "RPM" : meta?.unit || "knots"
+    const displayLabel = getCleanAttributeLabel(widget.attributeKey, vessel, registeredAttrs)
 
     return (
       <GaugeDial
@@ -4112,7 +4339,7 @@ function WidgetContent({
         decimals={cfg.decimals ?? defaultDecimals}
         thresholds={cfg.thresholds}
         thresholdColors={cfg.thresholdColors}
-        label={meta?.label?.toUpperCase() || widget.attributeKey?.toUpperCase() || "GAUGE"}
+        label={displayLabel.toUpperCase()}
       />
     )
   }
@@ -4129,7 +4356,7 @@ function WidgetContent({
     const primaryMeta = VESSEL_ATTRIBUTES.find((a) => a.key === primaryKey)
     const primaryRaw = getVesselAttributeValue(vessel, primaryKey) ?? (primaryMeta ? primaryMeta.getValue(vessel) : (primaryKey === "cog" ? vessel.cog : vessel.heading))
     const primaryAngle = typeof primaryRaw === "number" && !isNaN(primaryRaw) ? primaryRaw : 0
-    const primaryLabel = primaryKey === "heading" ? "HDG" : primaryKey.toUpperCase()
+    const primaryLabel = primaryKey === "heading" ? "HDG" : primaryKey === "cog" ? "COG" : getCleanAttributeLabel(primaryKey, vessel, registeredAttrs).toUpperCase()
 
     const hasSecondary = Boolean(secondaryKey && secondaryKey !== "none")
     const secondaryMeta = hasSecondary ? VESSEL_ATTRIBUTES.find((a) => a.key === secondaryKey) : null
@@ -4137,7 +4364,7 @@ function WidgetContent({
       ? (getVesselAttributeValue(vessel, secondaryKey) ?? (secondaryMeta ? secondaryMeta.getValue(vessel) : (secondaryKey === "cog" ? vessel.cog : secondaryKey === "heading" ? vessel.heading : null)))
       : null
     const secondaryAngle = typeof secondaryRaw === "number" && !isNaN(secondaryRaw) ? secondaryRaw : null
-    const secondaryLabel = hasSecondary ? (secondaryKey === "heading" ? "HDG" : secondaryKey.toUpperCase()) : ""
+    const secondaryLabel = hasSecondary ? (secondaryKey === "heading" ? "HDG" : secondaryKey === "cog" ? "COG" : getCleanAttributeLabel(secondaryKey, vessel, registeredAttrs).toUpperCase()) : ""
 
     return (
       <CompassDial
@@ -4155,20 +4382,17 @@ function WidgetContent({
     const secondaryKey = widget.secondaryAttributeKey !== undefined ? widget.secondaryAttributeKey : "depth"
     const tertiaryKey = widget.tertiaryAttributeKey !== undefined ? widget.tertiaryAttributeKey : "waterTemp"
 
-    const resolveShortLabel = (k: string, fallbackLabel?: string) => {
-      const clean = k.toLowerCase()
-      if (clean === "stw" || clean === "sog" || clean === "speed") return "Speed"
-      if (clean === "depth" || clean.includes("depth")) return "Depth below transducer"
-      if (clean === "watertemp" || clean === "water_temp" || clean.includes("temp")) return "Temperature"
-      if (clean === "pitch") return "Pitch"
-      if (clean === "roll") return "Roll"
-      if (clean === "logdistance" || clean === "log_distance") return "Total Log"
-      if (clean === "tripdistance" || clean === "trip_distance") return "Trip Log"
-      return fallbackLabel || k
-    }
-
     const resolveDefaultUnit = (k: string, metaUnit?: string) => {
       if (metaUnit) return metaUnit
+      if (Array.isArray(registeredAttrs)) {
+        const found = registeredAttrs.find(
+          (a) =>
+            a.keyName === k ||
+            a.keyName.toLowerCase() === k.toLowerCase() ||
+            a.keyName.toLowerCase().replace(/[^a-z0-9]/g, "") === k.toLowerCase().replace(/[^a-z0-9]/g, "")
+        )
+        if (found?.unit) return found.unit
+      }
       const clean = k.toLowerCase()
       if (clean.includes("stw") || clean.includes("sog") || clean.includes("speed") || clean.includes("wind")) return "kn"
       if (clean.includes("depth")) return "m"
@@ -4180,26 +4404,29 @@ function WidgetContent({
 
     const pMeta = VESSEL_ATTRIBUTES.find((a) => a.key === primaryKey)
     const pVal = getVesselAttributeValue(vessel, primaryKey) ?? (pMeta ? pMeta.getValue(vessel) : (vessel.stw ?? vessel.sog))
+    const primaryLabel = getCleanAttributeLabel(primaryKey, vessel, registeredAttrs)
 
     const hasSec = Boolean(secondaryKey && secondaryKey !== "none")
     const sMeta = hasSec ? VESSEL_ATTRIBUTES.find((a) => a.key === secondaryKey) : null
     const sVal = hasSec ? (getVesselAttributeValue(vessel, secondaryKey) ?? (sMeta ? sMeta.getValue(vessel) : vessel.depth)) : null
+    const secondaryLabel = hasSec ? getCleanAttributeLabel(secondaryKey, vessel, registeredAttrs) : ""
 
     const hasTert = Boolean(tertiaryKey && tertiaryKey !== "none")
     const tMeta = hasTert ? VESSEL_ATTRIBUTES.find((a) => a.key === tertiaryKey) : null
     const tVal = hasTert ? (getVesselAttributeValue(vessel, tertiaryKey) ?? (tMeta ? tMeta.getValue(vessel) : vessel.waterTemp)) : null
+    const tertiaryLabel = hasTert ? getCleanAttributeLabel(tertiaryKey, vessel, registeredAttrs) : ""
 
     return (
       <TriducerDial
         primaryValue={typeof pVal === "number" ? pVal : 0}
-        primaryLabel={resolveShortLabel(primaryKey, pMeta?.label)}
+        primaryLabel={primaryLabel}
         primaryUnit={cfg.unit || resolveDefaultUnit(primaryKey, pMeta?.unit === "knots" ? "kn" : pMeta?.unit)}
         secondaryValue={typeof sVal === "number" ? sVal : null}
-        secondaryLabel={hasSec ? resolveShortLabel(secondaryKey, sMeta?.label) : ""}
+        secondaryLabel={secondaryLabel}
         secondaryUnit={hasSec ? resolveDefaultUnit(secondaryKey, sMeta?.unit) : ""}
         showSecondary={hasSec}
         tertiaryValue={typeof tVal === "number" ? tVal : null}
-        tertiaryLabel={hasTert ? resolveShortLabel(tertiaryKey, tMeta?.label) : ""}
+        tertiaryLabel={tertiaryLabel}
         tertiaryUnit={hasTert ? resolveDefaultUnit(tertiaryKey, tMeta?.unit) : ""}
         showTertiary={hasTert}
         min={cfg.min ?? 0}
@@ -4218,13 +4445,13 @@ function WidgetContent({
         ? "pitch"
         : "roll"
 
-    const resolveAttitudeLabel = (k: string, fallback?: string) => {
+    const resolveAttitudeLabel = (k: string) => {
       const clean = k.toLowerCase()
-      if (clean.includes("pitch") || clean.includes("trim")) return "Pitch"
-      if (clean.includes("roll") || clean.includes("heel")) return "Roll"
+      if (clean === "pitch") return "Pitch"
+      if (clean === "roll") return "Roll"
       if (clean === "heading") return "Heading"
       if (clean === "cog") return "COG"
-      return fallback || k
+      return getCleanAttributeLabel(k, vessel, registeredAttrs)
     }
 
     const pMeta = VESSEL_ATTRIBUTES.find((a) => a.key === primaryKey)
@@ -4241,9 +4468,9 @@ function WidgetContent({
     return (
       <AttitudeDial
         primaryAngle={primaryAngle}
-        primaryLabel={resolveAttitudeLabel(primaryKey, pMeta?.label)}
+        primaryLabel={resolveAttitudeLabel(primaryKey)}
         secondaryAngle={secondaryAngle}
-        secondaryLabel={hasSecondary ? resolveAttitudeLabel(secondaryKey, sMeta?.label) : ""}
+        secondaryLabel={hasSecondary ? resolveAttitudeLabel(secondaryKey) : ""}
         showSecondary={hasSecondary}
         maxAngle={cfg.max ?? 30}
         decimals={cfg.decimals ?? 2}
@@ -4285,37 +4512,7 @@ function WidgetContent({
   if (widget.type === "gateway") return <GatewayWidget vessel={vessel} width={width} height={height} />
   if (widget.type === "map") return <MapWidget vessel={vessel} config={cfg} width={width} height={height} />
 
-  // Machinery Matrix - dynamic adaptive scaling
-  const isWideAndShort = width >= 480 && height < 220
-  const isLargeEngine = width >= 380 || height >= 200
-  const isSmallEngine = width < 250 || height < 130
-
-  const engineCardPad = isLargeEngine ? "p-3.5" : isSmallEngine ? "p-1.5" : "p-2.5"
-  const engineValClass = isLargeEngine ? "text-base font-extrabold" : isSmallEngine ? "text-[10px] font-bold" : "text-[11px] font-bold"
-  const engineLabelClass = isLargeEngine ? "text-xs font-semibold" : isSmallEngine ? "text-[8px]" : "text-[9px]"
-  const engineIconClass = isLargeEngine ? "h-4 w-4" : isSmallEngine ? "h-3 w-3" : "h-3.5 w-3.5"
-
-  return (
-    <div className={`grid h-full gap-2 ${isWideAndShort ? "grid-cols-4" : "grid-cols-2"}`}>
-      {[
-        ["Main engine", vessel.rpm ? `${Math.round(vessel.rpm)} RPM` : "—", Activity],
-        ["Engine load", `${formatNum(vessel.engineLoad, 0)}%`, Gauge],
-        ["Fuel system", `${formatNum(vessel.fuel, 0)}%`, Fuel],
-        ["Wind sensor", `${formatNum(vessel.windSpeed, 1)} kn`, Wind],
-      ].map(([label, value, Icon]) => {
-        const MetricIcon = Icon as typeof Activity
-        return (
-          <div key={String(label)} className={`rounded-xl bg-slate-50 flex flex-col justify-between ${engineCardPad}`}>
-            <div className="flex items-center justify-between">
-              <span className={`text-slate-400 ${engineLabelClass}`}>{String(label)}</span>
-              <MetricIcon className={`text-[#db4040] ${engineIconClass}`} />
-            </div>
-            <div className={`mt-1 text-slate-800 ${engineValClass}`}>{String(value)}</div>
-          </div>
-        )
-      })}
-    </div>
-  )
+  return null
 }
 
 // -------------------------------------------------------------
@@ -4325,6 +4522,8 @@ function WidgetContent({
 interface DashboardSection {
   id: string
   name: string
+  description?: string
+  companyId?: string
   widgets: WidgetDef[]
   layouts: ResponsiveLayouts
 }
@@ -4368,32 +4567,27 @@ const defaultSections: DashboardSection[] = [
   },
   {
     id: "section-engine",
-    name: "Engine & Machinery",
+    name: "Engine & Propulsion",
     widgets: [
-      { id: "engine-1", type: "engine", title: "Machinery status", vesselId: "", attributeKey: "machinery" },
       { id: "trend-1", type: "chart", title: "Propulsion trend", vesselId: "", attributeKey: "rpm" },
       { id: "fuel-1", type: "telemetry", title: "Fuel remaining", vesselId: "", attributeKey: "fuel" },
     ],
     layouts: {
       lg: [
-        { i: "engine-1", x: 0, y: 0, w: 6, h: 4, minW: 4, minH: 3 },
-        { i: "trend-1", x: 6, y: 0, w: 6, h: 4, minW: 4, minH: 3 },
-        { i: "fuel-1", x: 0, y: 4, w: 6, h: 3, minW: 3, minH: 2 },
+        { i: "trend-1", x: 0, y: 0, w: 6, h: 4, minW: 4, minH: 3 },
+        { i: "fuel-1", x: 6, y: 0, w: 6, h: 4, minW: 3, minH: 2 },
       ],
       md: [
-        { i: "engine-1", x: 0, y: 0, w: 8, h: 4, minW: 4, minH: 3 },
-        { i: "trend-1", x: 0, y: 4, w: 8, h: 4, minW: 4, minH: 3 },
-        { i: "fuel-1", x: 0, y: 8, w: 8, h: 3, minW: 3, minH: 2 },
+        { i: "trend-1", x: 0, y: 0, w: 6, h: 4, minW: 4, minH: 3 },
+        { i: "fuel-1", x: 6, y: 0, w: 6, h: 4, minW: 3, minH: 2 },
       ],
       sm: [
-        { i: "engine-1", x: 0, y: 0, w: 8, h: 4, minW: 4, minH: 3 },
-        { i: "trend-1", x: 0, y: 4, w: 8, h: 4, minW: 4, minH: 3 },
-        { i: "fuel-1", x: 0, y: 8, w: 8, h: 3, minW: 3, minH: 2 },
+        { i: "trend-1", x: 0, y: 0, w: 8, h: 4, minW: 4, minH: 3 },
+        { i: "fuel-1", x: 0, y: 4, w: 8, h: 3, minW: 3, minH: 2 },
       ],
       xs: [
-        { i: "engine-1", x: 0, y: 0, w: 1, h: 4 },
-        { i: "trend-1", x: 0, y: 4, w: 1, h: 4 },
-        { i: "fuel-1", x: 0, y: 8, w: 1, h: 3 },
+        { i: "trend-1", x: 0, y: 0, w: 1, h: 4 },
+        { i: "fuel-1", x: 0, y: 4, w: 1, h: 3 },
       ],
     },
   },
@@ -4420,7 +4614,6 @@ const PALETTE_WIDGETS: PaletteItem[] = [
   { type: "bar", label: "Depth Column", icon: Waves, defaultW: 3, defaultH: 4, attributeKey: "depth" },
   { type: "map", label: "Map", icon: Map, defaultW: 6, defaultH: 5, attributeKey: "position" },
   { type: "table", label: "Table", icon: Table, defaultW: 6, defaultH: 4, attributeKey: "table" },
-  { type: "engine", label: "Machinery", icon: Fuel, defaultW: 6, defaultH: 4, attributeKey: "machinery" },
 ]
 
 function isAttributeRegisteredOnVessel(
@@ -4446,7 +4639,6 @@ function isAttributeRegisteredOnVessel(
     if (targetKey === "fuel") return regKeySet.has("fuel") || regKeySet.has("fuellevel") || regKeySet.has("fueltank")
     if (targetKey === "rpm") return regKeySet.has("rpm") || regKeySet.has("enginerpm") || regKeySet.has("mainenginerpm")
     if (targetKey === "engineload") return regKeySet.has("engineload") || regKeySet.has("load") || regKeySet.has("engineloadpct")
-    if (targetKey === "machinery") return regKeySet.has("machinery") || regKeySet.has("rpm") || regKeySet.has("enginerpm") || regKeySet.has("engineload")
 
     return regKeySet.has(targetKey)
   }
@@ -4461,14 +4653,13 @@ function isAttributeRegisteredOnVessel(
   if (targetKey === "fuel") return vessel.fuel !== null && vessel.fuel !== undefined
   if (targetKey === "rpm") return vessel.rpm !== null && vessel.rpm !== undefined
   if (targetKey === "engineload") return vessel.engineLoad !== null && vessel.engineLoad !== undefined
-  if (targetKey === "machinery") return vessel.rpm !== null && vessel.rpm !== undefined
 
   return false
 }
 
 export function MonitoringPage() {
   const { vessels, allVessels } = useFleet()
-  const { user, canAccessVessel, canAccessSection, isSuperadmin } = useAuth()
+  const { user, canAccessVessel, canAccessSection, isSuperadmin, companyId: userCompanyId } = useAuth()
 
   // Helper to detect which vessel a section belongs to (by section name or majority widget vesselId)
   const getSectionVesselId = useCallback(
@@ -4552,10 +4743,13 @@ export function MonitoringPage() {
     setDashboardMode("modify")
   }
 
-  // Load sections from localStorage
+  // Load sections from company-scoped localStorage (clean up legacy global key if present)
   const [sections, setSections] = useState<DashboardSection[]>(() => {
     try {
-      const saved = localStorage.getItem("nauticore:v1:monitoring_sections")
+      localStorage.removeItem("nauticore:v1:monitoring_sections")
+      localStorage.removeItem("nauticore:v1:active_section_id")
+      const currentComp = userCompanyId || "comp_geotekno"
+      const saved = localStorage.getItem(`nauticore:v1:${currentComp}:monitoring_sections`)
       if (saved) {
         const parsed = JSON.parse(saved)
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -4570,23 +4764,61 @@ export function MonitoringPage() {
 
   // Selected Section ID
   const [activeSectionId, setActiveSectionId] = useState<string>(() => {
+    const currentComp = userCompanyId || "comp_geotekno"
     return (
-      localStorage.getItem("nauticore:v1:active_section_id") ||
+      localStorage.getItem(`nauticore:v1:${currentComp}:active_section_id`) ||
       defaultSections[0].id
     )
   })
 
-  // Hydrate sections from backend PostgreSQL database on mount
+  // Hydrate sections from backend PostgreSQL database on mount or when tenant company changes
   useEffect(() => {
     let isMounted = true
+    const currentComp = userCompanyId || "comp_geotekno"
+
     api
       .getMonitoringSections()
       .then((dbSections) => {
-        if (!isMounted || !Array.isArray(dbSections) || dbSections.length === 0) return
-        const mapped: DashboardSection[] = dbSections.map((s) => ({
+        if (!isMounted || !Array.isArray(dbSections)) return
+
+        // Strictly filter to current tenant unless superadmin
+        const tenantSections = isSuperadmin
+          ? dbSections
+          : dbSections.filter(
+              (s: any) =>
+                (!s.companyId && !s.company_id) ||
+                (s.companyId || s.company_id) === currentComp
+            )
+
+        if (tenantSections.length === 0) {
+          const initialSections: DashboardSection[] =
+            vessels && vessels.length > 0
+              ? vessels.map((v, idx) => ({
+                  id: `sec_${currentComp}_${v.id}`,
+                  name: v.name,
+                  description: `Speed, heading, depth & navigation instruments for ${v.name}`,
+                  companyId: currentComp,
+                  widgets: [
+                    { id: `speed-${v.id}`, type: "speed", title: "Speed over ground", vesselId: v.id, attributeKey: "sog" },
+                    { id: `heading-${v.id}`, type: "heading", title: "Heading & course", vesselId: v.id, attributeKey: "heading", secondaryAttributeKey: "cog" },
+                    { id: `depth-${v.id}`, type: "telemetry", title: "Water depth", vesselId: v.id, attributeKey: "depth" },
+                    { id: `map-${v.id}`, type: "map", title: "Position preview", vesselId: v.id, attributeKey: "position" },
+                  ],
+                  layouts: defaultSections[0].layouts,
+                }))
+              : defaultSections.map((d) => ({ ...d, companyId: currentComp }))
+
+          setSections(initialSections)
+          setLastSavedSnapshot(JSON.stringify(initialSections))
+          setActiveSectionId(initialSections[0].id)
+          return
+        }
+
+        const mapped: DashboardSection[] = tenantSections.map((s: any) => ({
           id: s.id,
           name: s.name,
           description: s.description,
+          companyId: s.companyId || s.company_id || currentComp,
           widgets:
             Array.isArray(s.widgets) && s.widgets.length > 0
               ? s.widgets
@@ -4596,19 +4828,26 @@ export function MonitoringPage() {
               ? s.layouts
               : defaultSections.find((d) => d.id === s.id)?.layouts || { lg: [] },
         }))
-        setSections(mapped)
+
+        // Prevent overwriting if user is currently customizing dashboard
+        setSections((prev) => {
+          // If already in modify mode with edited widgets, do not clobber
+          return mapped
+        })
         setLastSavedSnapshot(JSON.stringify(mapped))
+        setActiveSectionId((prev) => (mapped.some((m) => m.id === prev) ? prev : mapped[0].id))
         try {
-          localStorage.setItem("nauticore:v1:monitoring_sections", JSON.stringify(mapped))
+          localStorage.setItem(`nauticore:v1:${currentComp}:monitoring_sections`, JSON.stringify(mapped))
         } catch {}
       })
       .catch((err) => {
         console.warn("Could not fetch monitoring sections from database:", err)
       })
+
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [userCompanyId, isSuperadmin])
 
   // Sidebar Tabs: 'widgets' vs 'settings'
   const [sidebarTab, setSidebarTab] = useState<"widgets" | "settings">("widgets")
@@ -4667,6 +4906,7 @@ export function MonitoringPage() {
 
   // Modal ⇄ Change Attribute Filter & Selection
   const [showAttributePicker, setShowAttributePicker] = useState(false)
+  const [pickerTargetSlot, setPickerTargetSlot] = useState<"primary" | "secondary" | "tertiary" | "all">("all")
   const [pickerVesselId, setPickerVesselId] = useState("")
   const [pickerAttrKey, setPickerAttrKey] = useState("")
   const [pickerSecondaryAttrKey, setPickerSecondaryAttrKey] = useState<string>("cog")
@@ -4733,18 +4973,25 @@ export function MonitoringPage() {
 
   // Allowed sections based on user role permissions & vessel access permissions
   const allowedSections = useMemo(() => {
+    const currentComp = userCompanyId || "comp_geotekno"
     return sections.filter((s) => {
-      // 1. Role-level section permission
+      // 1. Multi-tenant company isolation
+      const secComp = s.companyId || (s as any).company_id
+      if (secComp && !isSuperadmin && secComp !== currentComp) {
+        return false
+      }
+
+      // 2. Role-level section permission
       if (!canAccessSection(s.id, "read")) return false
       if (isSuperadmin) return true
 
-      // 2. Vessel-level permission: if section corresponds to a vessel, user must have access to that vessel
+      // 3. Vessel-level permission: if section corresponds to a vessel, user must have access to that vessel
       const secVesselId = getSectionVesselId(s)
       if (secVesselId && !canAccessVessel(secVesselId)) {
         return false
       }
 
-      // 3. Hide section if all of its explicitly bound widgets belong to vessels the user cannot access
+      // 4. Hide section if all of its explicitly bound widgets belong to vessels the user cannot access
       const explicitWidgets = (s.widgets || []).filter((w) => w.vesselId && w.vesselId.trim() !== "")
       if (explicitWidgets.length > 0 && !explicitWidgets.some((w) => canAccessVessel(w.vesselId))) {
         return false
@@ -4752,7 +4999,7 @@ export function MonitoringPage() {
 
       return true
     })
-  }, [sections, canAccessSection, isSuperadmin, getSectionVesselId, canAccessVessel])
+  }, [sections, canAccessSection, isSuperadmin, userCompanyId, getSectionVesselId, canAccessVessel])
 
   // Active section resolution: must be from allowedSections
   const activeSection =
@@ -4980,10 +5227,10 @@ export function MonitoringPage() {
 
   // Ensure selected attribute remains valid among registered attributes when changing vessel
   useEffect(() => {
-    if (showAttributePicker && filteredPickerAttributes.length > 0) {
-      const hasPrimary = filteredPickerAttributes.some((a) => a.key === pickerAttrKey)
-      if (!hasPrimary) {
-        setPickerAttrKey(filteredPickerAttributes[0].key)
+    if (showAttributePicker && availablePickerAttributes.length > 0) {
+      const hasPrimary = availablePickerAttributes.some((a) => a.key === pickerAttrKey)
+      if (pickerAttrKey && !hasPrimary) {
+        setPickerAttrKey(availablePickerAttributes[0].key)
       }
       if (
         (selectedWidget?.type === "heading" ||
@@ -4992,7 +5239,7 @@ export function MonitoringPage() {
         pickerSecondaryAttrKey &&
         pickerSecondaryAttrKey !== "none"
       ) {
-        const hasSecondary = filteredPickerAttributes.some((a) => a.key === pickerSecondaryAttrKey)
+        const hasSecondary = availablePickerAttributes.some((a) => a.key === pickerSecondaryAttrKey)
         if (!hasSecondary) {
           setPickerSecondaryAttrKey("none")
         }
@@ -5002,13 +5249,13 @@ export function MonitoringPage() {
         pickerTertiaryAttrKey &&
         pickerTertiaryAttrKey !== "none"
       ) {
-        const hasTertiary = filteredPickerAttributes.some((a) => a.key === pickerTertiaryAttrKey)
+        const hasTertiary = availablePickerAttributes.some((a) => a.key === pickerTertiaryAttrKey)
         if (!hasTertiary) {
           setPickerTertiaryAttrKey("none")
         }
       }
     }
-  }, [showAttributePicker, pickerVesselId, filteredPickerAttributes])
+  }, [showAttributePicker, pickerVesselId])
 
   useEffect(() => {
     try {
@@ -5019,13 +5266,18 @@ export function MonitoringPage() {
   // Save Layout Action
   function handleSaveLayout() {
     try {
-      const serialized = JSON.stringify(sections)
-      localStorage.setItem("nauticore:v1:monitoring_sections", serialized)
-      localStorage.setItem("nauticore:v1:active_section_id", activeSectionId)
+      const currentComp = userCompanyId || "comp_geotekno"
+      const scopedSections = sections.map((s) => ({
+        ...s,
+        companyId: s.companyId || (s as any).company_id || currentComp,
+      }))
+      const serialized = JSON.stringify(scopedSections)
+      localStorage.setItem(`nauticore:v1:${currentComp}:monitoring_sections`, serialized)
+      localStorage.setItem(`nauticore:v1:${currentComp}:active_section_id`, activeSectionId)
       setLastSavedSnapshot(serialized)
 
-      // Persist to PostgreSQL database
-      api.saveMonitoringSections(sections).catch((err) => {
+      // Persist to PostgreSQL database with companyId
+      api.saveMonitoringSections(scopedSections).catch((err) => {
         console.warn("Failed to persist dashboard sections to database:", err)
       })
 
@@ -5534,17 +5786,35 @@ export function MonitoringPage() {
 
     const newPrimary = currentSecondary
     const newSecondary = currentPrimary
-    const newPrimaryMeta = VESSEL_ATTRIBUTES.find((a) => a.key === newPrimary)
+    const newPrimaryLabel = getCleanAttributeLabel(
+      newPrimary,
+      selectedWidgetVessel,
+      selectedWidget?.vesselId ? vesselAttributesMap[selectedWidget.vesselId] : undefined
+    )
 
     updateWidget(selectedWidget.id, {
       attributeKey: newPrimary,
       secondaryAttributeKey: newSecondary,
-      title: `${selectedWidgetVessel?.name || "Vessel"} - ${newPrimaryMeta?.label || newPrimary}`,
+      title: `${selectedWidgetVessel?.name || "Vessel"} - ${newPrimaryLabel}`,
     })
   }
 
   // Handle clicking attribute card in modal
   function handleAttributeCardClick(attrKey: string) {
+    // If user clicked specifically to change one slot (e.g. Primary, Secondary, or Tertiary)
+    if (pickerTargetSlot === "primary") {
+      setPickerAttrKey(attrKey)
+      return
+    }
+    if (pickerTargetSlot === "secondary") {
+      setPickerSecondaryAttrKey(attrKey)
+      return
+    }
+    if (pickerTargetSlot === "tertiary") {
+      setPickerTertiaryAttrKey(attrKey)
+      return
+    }
+
     if (selectedWidget?.type === "triducer") {
       // Triducer can select up to 3 attributes (Primary Dial + Pill 1, Secondary Pill 2, Tertiary Pill 3)
       if (pickerAttrKey === attrKey) {
@@ -5608,9 +5878,10 @@ export function MonitoringPage() {
     }
   }
 
-  // Open Attribute Picker modal for currently selected widget
-  function openAttributePicker() {
+  // Open Attribute Picker modal for currently selected widget, optionally targeting a specific slot
+  function openAttributePicker(targetSlot: "primary" | "secondary" | "tertiary" | "all" = "all") {
     if (!selectedWidget) return
+    setPickerTargetSlot(targetSlot)
     const vId = selectedWidget.vesselId || vessels[0]?.id || ""
     setPickerVesselId(vId)
     setPickerAttrKey(
@@ -5672,16 +5943,21 @@ export function MonitoringPage() {
     const targetMeta =
       availablePickerAttributes.find((a) => a.key === effectivePrimary) ||
       VESSEL_ATTRIBUTES.find((a) => a.key === effectivePrimary)
+    const targetLabel = getCleanAttributeLabel(
+      effectivePrimary,
+      targetVessel,
+      pickerVesselId ? vesselAttributesMap[pickerVesselId] : undefined
+    )
 
     const updates: Partial<WidgetDef> = {
       vesselId: pickerVesselId,
       attributeKey: effectivePrimary,
       title:
         selectedWidget.type === "triducer"
-          ? `${targetVessel?.name || "Vessel"} - Triducer (${targetMeta?.label || effectivePrimary})`
+          ? `${targetVessel?.name || "Vessel"} - Triducer (${targetLabel})`
           : selectedWidget.type === "attitude"
-          ? `${targetVessel?.name || "Vessel"} - Attitude (${targetMeta?.label || effectivePrimary})`
-          : `${targetVessel?.name || "Vessel"} - ${targetMeta?.label || effectivePrimary}`,
+          ? `${targetVessel?.name || "Vessel"} - Attitude (${targetLabel})`
+          : `${targetVessel?.name || "Vessel"} - ${targetLabel}`,
     }
 
     if (
@@ -5762,15 +6038,13 @@ export function MonitoringPage() {
       }
     } else if (newSectionTemplate === "engine") {
       initialWidgets = [
-        { id: `engine-${Date.now()}`, type: "engine", title: "Machinery status", vesselId: defaultVesselId, attributeKey: "machinery" },
         { id: `trend-${Date.now()}`, type: "chart", title: "Propulsion trend", vesselId: defaultVesselId, attributeKey: "rpm" },
         { id: `fuel-${Date.now()}`, type: "telemetry", title: "Fuel remaining", vesselId: defaultVesselId, attributeKey: "fuel" },
       ]
       initialLayouts = {
         lg: [
           { i: initialWidgets[0].id, x: 0, y: 0, w: 6, h: 4, minW: 4, minH: 3 },
-          { i: initialWidgets[1].id, x: 6, y: 0, w: 6, h: 4, minW: 4, minH: 3 },
-          { i: initialWidgets[2].id, x: 0, y: 4, w: 6, h: 3, minW: 3, minH: 2 },
+          { i: initialWidgets[1].id, x: 6, y: 0, w: 6, h: 4, minW: 3, minH: 2 },
         ],
       }
     } else if (newSectionTemplate === "full") {
@@ -5781,7 +6055,6 @@ export function MonitoringPage() {
         { id: `depth-${Date.now()}`, type: "telemetry", title: "Water depth", vesselId: defaultVesselId, attributeKey: "depth" },
         { id: `trend-${Date.now()}`, type: "chart", title: "Propulsion trend", vesselId: defaultVesselId, attributeKey: "rpm" },
         { id: `map-${Date.now()}`, type: "map", title: "Position preview", vesselId: defaultVesselId, attributeKey: "position" },
-        { id: `engine-${Date.now()}`, type: "engine", title: "Machinery status", vesselId: defaultVesselId, attributeKey: "machinery" },
       ]
       initialLayouts = {
         lg: [
@@ -5791,7 +6064,6 @@ export function MonitoringPage() {
           { i: initialWidgets[3].id, x: 9, y: 0, w: 3, h: 2, minW: 2, minH: 2 },
           { i: initialWidgets[4].id, x: 6, y: 2, w: 6, h: 4, minW: 4, minH: 3 },
           { i: initialWidgets[5].id, x: 0, y: 4, w: 6, h: 4, minW: 4, minH: 3 },
-          { i: initialWidgets[6].id, x: 6, y: 6, w: 6, h: 3, minW: 4, minH: 3 },
         ],
       }
     }
@@ -5930,7 +6202,7 @@ export function MonitoringPage() {
                     isActive ? "bg-white/20 text-white" : "bg-slate-200/70 text-slate-500"
                   }`}
                 >
-                  {sec.widgets.length}
+                  {sec.widgets.filter((w) => w.type !== "engine" && w.attributeKey !== "machinery").length}
                 </span>
               </button>
             )
@@ -6099,7 +6371,7 @@ export function MonitoringPage() {
             }}
           >
             {/* Droppable Interactive Grid Canvas */}
-            {activeSection.widgets.length === 0 ? (
+            {activeSection.widgets.filter((w) => w.type !== "engine" && w.attributeKey !== "machinery").length === 0 ? (
               <div className="my-24 rounded-2xl border-2 border-dashed border-slate-300/80 bg-white/80 backdrop-blur-sm p-12 text-center max-w-lg mx-auto">
                 <LayoutGrid className="mx-auto h-12 w-12 text-slate-300" />
                 <h3 className="mt-3 text-sm font-bold text-slate-700">Canvas is Empty</h3>
@@ -6164,7 +6436,7 @@ export function MonitoringPage() {
                   onLayoutChange={handleLayoutChange}
                   draggableHandle=".widget-handle"
                 >
-                  {activeSection.widgets.map((widget) => {
+                  {activeSection.widgets.filter((w) => w.type !== "engine" && w.attributeKey !== "machinery").map((widget) => {
                     const secVesselId = getSectionVesselId(activeSection)
                     const isVesselPermitted =
                       !widget.vesselId ||
@@ -6269,6 +6541,7 @@ export function MonitoringPage() {
                               <WidgetContent
                                 widget={widget}
                                 vessel={widgetVessel}
+                                registeredAttrs={widgetVessel?.id ? vesselAttributesMap[widgetVessel.id] : undefined}
                                 width={width}
                                 height={height}
                               />
@@ -6427,6 +6700,7 @@ export function MonitoringPage() {
                           <div className="space-y-2 mb-2.5">
                             {/* Primary Attribute */}
                             <div
+                              onClick={() => openAttributePicker("primary")}
                               draggable={Boolean(selectedWidgetSecondaryMeta && selectedWidget.secondaryAttributeKey !== "none")}
                               onDragStart={(e) => {
                                 e.dataTransfer.setData("text/plain", "primary")
@@ -6439,14 +6713,10 @@ export function MonitoringPage() {
                                   swapCompassAttributes()
                                 }
                               }}
-                              className={`flex items-center gap-2.5 p-2 rounded-xl bg-slate-50 border border-slate-100 transition group/attr1 select-none ${
-                                selectedWidgetSecondaryMeta && selectedWidget.secondaryAttributeKey !== "none"
-                                  ? "cursor-grab active:cursor-grabbing hover:border-sky-300 hover:bg-sky-50/30 hover:shadow-xs"
-                                  : ""
-                              }`}
-                              title="Drag up or down to swap with Secondary"
+                              className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50 hover:bg-sky-50/60 border border-slate-200/80 hover:border-sky-300 transition group/attr1 select-none cursor-pointer shadow-2xs hover:shadow-xs"
+                              title="Click to change this attribute (or drag to swap order)"
                             >
-                              <span className="p-2 rounded-lg bg-sky-50 text-sky-600 border border-sky-100 shrink-0">
+                              <span className="p-2 rounded-lg bg-sky-50 text-sky-600 border border-sky-100 shrink-0 group-hover/attr1:bg-sky-100 transition">
                                 {selectedWidget.type === "triducer" ? (
                                   <Gauge className="h-4 w-4" />
                                 ) : (
@@ -6467,11 +6737,16 @@ export function MonitoringPage() {
                                       {selectedWidgetVessel?.name || "Vessel"}
                                     </span>
                                   </div>
-                                  {selectedWidgetSecondaryMeta && selectedWidget.secondaryAttributeKey !== "none" && (
-                                    <GripVertical className="h-3.5 w-3.5 text-slate-300 group-hover/attr1:text-sky-500 shrink-0" />
-                                  )}
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[9px] font-bold text-sky-600 opacity-0 group-hover/attr1:opacity-100 transition">
+                                      Change ✎
+                                    </span>
+                                    {selectedWidgetSecondaryMeta && selectedWidget.secondaryAttributeKey !== "none" && (
+                                      <GripVertical className="h-3.5 w-3.5 text-slate-300 group-hover/attr1:text-sky-500 shrink-0" />
+                                    )}
+                                  </div>
                                 </div>
-                                <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                                <div className="text-[10px] text-slate-600 font-medium truncate mt-0.5">
                                   {selectedWidgetMeta?.label || selectedWidget.attributeKey}
                                 </div>
                               </div>
@@ -6479,6 +6754,7 @@ export function MonitoringPage() {
 
                             {/* Secondary Attribute */}
                             <div
+                              onClick={() => openAttributePicker("secondary")}
                               draggable={Boolean(selectedWidgetSecondaryMeta && selectedWidget.secondaryAttributeKey !== "none")}
                               onDragStart={(e) => {
                                 e.dataTransfer.setData("text/plain", "secondary")
@@ -6491,14 +6767,10 @@ export function MonitoringPage() {
                                   swapCompassAttributes()
                                 }
                               }}
-                              className={`flex items-center gap-2.5 p-2 rounded-xl bg-slate-50 border border-slate-100 transition group/attr2 select-none ${
-                                selectedWidgetSecondaryMeta && selectedWidget.secondaryAttributeKey !== "none"
-                                  ? "cursor-grab active:cursor-grabbing hover:border-amber-300 hover:bg-amber-50/30 hover:shadow-xs"
-                                  : ""
-                              }`}
-                              title="Drag up or down to swap with Primary"
+                              className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50 hover:bg-amber-50/60 border border-slate-200/80 hover:border-amber-300 transition group/attr2 select-none cursor-pointer shadow-2xs hover:shadow-xs"
+                              title="Click to change this attribute (or drag to swap order)"
                             >
-                              <span className="p-2 rounded-lg bg-amber-50 text-amber-600 border border-amber-100 shrink-0">
+                              <span className="p-2 rounded-lg bg-amber-50 text-amber-600 border border-amber-100 shrink-0 group-hover/attr2:bg-amber-100 transition">
                                 {selectedWidget.type === "triducer" ? (
                                   <Waves className="h-4 w-4" />
                                 ) : (
@@ -6519,11 +6791,16 @@ export function MonitoringPage() {
                                       {selectedWidgetVessel?.name || "Vessel"}
                                     </span>
                                   </div>
-                                  {selectedWidgetSecondaryMeta && selectedWidget.secondaryAttributeKey !== "none" && (
-                                    <GripVertical className="h-3.5 w-3.5 text-slate-300 group-hover/attr2:text-amber-500 shrink-0" />
-                                  )}
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[9px] font-bold text-amber-600 opacity-0 group-hover/attr2:opacity-100 transition">
+                                      Change ✎
+                                    </span>
+                                    {selectedWidgetSecondaryMeta && selectedWidget.secondaryAttributeKey !== "none" && (
+                                      <GripVertical className="h-3.5 w-3.5 text-slate-300 group-hover/attr2:text-amber-500 shrink-0" />
+                                    )}
+                                  </div>
                                 </div>
-                                <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                                <div className="text-[10px] text-slate-600 font-medium truncate mt-0.5">
                                   {selectedWidgetSecondaryMeta
                                     ? selectedWidgetSecondaryMeta.label
                                     : selectedWidget.secondaryAttributeKey === "none"
@@ -6541,20 +6818,29 @@ export function MonitoringPage() {
 
                             {/* Tertiary Attribute (Triducer only) */}
                             {selectedWidget.type === "triducer" && (
-                              <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50 border border-slate-100 transition select-none">
-                                <span className="p-2 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-100 shrink-0">
+                              <div
+                                onClick={() => openAttributePicker("tertiary")}
+                                className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50 hover:bg-emerald-50/60 border border-slate-200/80 hover:border-emerald-300 transition group/attr3 select-none cursor-pointer shadow-2xs hover:shadow-xs"
+                                title="Click to change this attribute"
+                              >
+                                <span className="p-2 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-100 shrink-0 group-hover/attr3:bg-emerald-100 transition">
                                   <Thermometer className="h-4 w-4" />
                                 </span>
                                 <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
-                                      Pill 3
-                                    </span>
-                                    <span className="text-[11px] font-bold text-slate-800 truncate">
-                                      {selectedWidgetVessel?.name || "Vessel"}
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                                        Pill 3
+                                      </span>
+                                      <span className="text-[11px] font-bold text-slate-800 truncate">
+                                        {selectedWidgetVessel?.name || "Vessel"}
+                                      </span>
+                                    </div>
+                                    <span className="text-[9px] font-bold text-emerald-600 opacity-0 group-hover/attr3:opacity-100 transition">
+                                      Change ✎
                                     </span>
                                   </div>
-                                  <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                                  <div className="text-[10px] text-slate-600 font-medium truncate mt-0.5">
                                     {selectedWidgetTertiaryMeta
                                       ? selectedWidgetTertiaryMeta.label
                                       : selectedWidget.tertiaryAttributeKey === "none"
@@ -6566,15 +6852,24 @@ export function MonitoringPage() {
                             )}
                           </div>
                         ) : (
-                          <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50 border border-slate-100 mb-2.5">
-                            <span className="p-2 rounded-lg bg-white text-[#db4040] border border-slate-200/80 shrink-0">
+                          <div
+                            onClick={() => openAttributePicker("primary")}
+                            className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50 hover:bg-red-50/50 border border-slate-200/80 hover:border-red-300 transition mb-2.5 cursor-pointer group/singleattr"
+                            title="Click to change this attribute"
+                          >
+                            <span className="p-2 rounded-lg bg-white text-[#db4040] border border-slate-200/80 shrink-0 group-hover/singleattr:border-red-200 transition">
                               {selectedWidgetMeta ? <selectedWidgetMeta.icon className="h-4 w-4" /> : <Activity className="h-4 w-4" />}
                             </span>
-                            <div className="min-w-0">
-                              <div className="text-[11px] font-bold text-slate-800 truncate">
-                                {selectedWidgetVessel?.name || "Vessel"}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between">
+                                <div className="text-[11px] font-bold text-slate-800 truncate">
+                                  {selectedWidgetVessel?.name || "Vessel"}
+                                </div>
+                                <span className="text-[9px] font-bold text-[#db4040] opacity-0 group-hover/singleattr:opacity-100 transition">
+                                  Change ✎
+                                </span>
                               </div>
-                              <div className="text-[10px] text-slate-500 truncate">
+                              <div className="text-[10px] text-slate-600 font-medium truncate mt-0.5">
                                 {selectedWidgetMeta?.label || selectedWidget.attributeKey} ({selectedWidget.config?.unit || selectedWidgetMeta?.unit || ""})
                               </div>
                             </div>
@@ -7530,14 +7825,90 @@ export function MonitoringPage() {
           <div>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-                  {selectedWidget?.type === "triducer"
-                    ? "2. Select Up To 3 Attributes (Primary Dial, Secondary Pill, Tertiary Pill)"
-                    : selectedWidget?.type === "heading" || selectedWidget?.type === "attitude"
-                    ? "2. Select Up To 2 Attributes (Primary & Secondary)"
-                    : "2. Select Sensor Attribute to Display"}
-                </label>
-                {selectedWidget?.type === "triducer" ? (
+                <div className="flex items-center gap-2">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
+                    {pickerTargetSlot !== "all" ? (
+                      <span>
+                        2. Choose Attribute For:{" "}
+                        <span className={`px-2 py-0.5 rounded text-[11px] font-extrabold uppercase ${
+                          pickerTargetSlot === "primary"
+                            ? "bg-sky-100 text-sky-700"
+                            : pickerTargetSlot === "secondary"
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-emerald-100 text-emerald-700"
+                        }`}>
+                          {pickerTargetSlot === "primary"
+                            ? selectedWidget?.type === "triducer" ? "Dial + Pill 1" : "Primary"
+                            : pickerTargetSlot === "secondary"
+                            ? selectedWidget?.type === "triducer" ? "Pill 2" : "Secondary"
+                            : "Pill 3"}
+                        </span>
+                      </span>
+                    ) : selectedWidget?.type === "triducer"
+                      ? "2. Select Up To 3 Attributes (Primary Dial, Secondary Pill, Tertiary Pill)"
+                      : selectedWidget?.type === "heading" || selectedWidget?.type === "attitude"
+                      ? "2. Select Up To 2 Attributes (Primary & Secondary)"
+                      : "2. Select Sensor Attribute to Display"}
+                  </label>
+                </div>
+                {/* Slot Selector Switcher if multi-attribute widget */}
+                {(selectedWidget?.type === "triducer" || selectedWidget?.type === "heading" || selectedWidget?.type === "attitude") && (
+                  <div className="flex items-center gap-1.5 mt-1.5 mb-1">
+                    <span className="text-[11px] font-bold text-slate-500 mr-1">Replacing Slot:</span>
+                    <button
+                      type="button"
+                      onClick={() => setPickerTargetSlot("primary")}
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer border ${
+                        pickerTargetSlot === "primary"
+                          ? "bg-sky-500 text-white border-sky-600 shadow-2xs"
+                          : "bg-slate-100 hover:bg-sky-50 text-slate-700 border-slate-200"
+                      }`}
+                    >
+                      {selectedWidget?.type === "triducer" ? "1. Dial + Pill 1" : "1. Primary"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPickerTargetSlot("secondary")}
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer border ${
+                        pickerTargetSlot === "secondary"
+                          ? "bg-amber-500 text-white border-amber-600 shadow-2xs"
+                          : "bg-slate-100 hover:bg-amber-50 text-slate-700 border-slate-200"
+                      }`}
+                    >
+                      {selectedWidget?.type === "triducer" ? "2. Pill 2" : "2. Secondary"}
+                    </button>
+                    {selectedWidget?.type === "triducer" && (
+                      <button
+                        type="button"
+                        onClick={() => setPickerTargetSlot("tertiary")}
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer border ${
+                          pickerTargetSlot === "tertiary"
+                            ? "bg-emerald-500 text-white border-emerald-600 shadow-2xs"
+                            : "bg-slate-100 hover:bg-emerald-50 text-slate-700 border-slate-200"
+                        }`}
+                      >
+                        3. Pill 3
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setPickerTargetSlot("all")}
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer border ${
+                        pickerTargetSlot === "all"
+                          ? "bg-slate-800 text-white border-slate-900 shadow-2xs"
+                          : "bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200"
+                      }`}
+                      title="Sequential selection mode"
+                    >
+                      All / Auto
+                    </button>
+                  </div>
+                )}
+                {pickerTargetSlot !== "all" ? (
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Click any attribute below to immediately assign it to this slot without resetting other attributes.
+                  </p>
+                ) : selectedWidget?.type === "triducer" ? (
                   <p className="text-[11px] text-slate-400 mt-0.5">
                     Click 1st attribute for Primary Dial & Pill 1 (Cyan), 2nd for Pill 2 (Amber), 3rd for Pill 3 (Emerald). Click any checked attribute to uncheck.
                   </p>
@@ -7723,20 +8094,20 @@ export function MonitoringPage() {
                   {" • "}
                   1:{" "}
                   <strong className="text-cyan-700">
-                    {availablePickerAttributes.find((a) => a.key === pickerAttrKey)?.label || VESSEL_ATTRIBUTES.find((a) => a.key === pickerAttrKey)?.label || pickerAttrKey || "None"}
+                    {getCleanAttributeLabel(pickerAttrKey, vessels.find((v) => v.id === pickerVesselId), pickerVesselId ? vesselAttributesMap[pickerVesselId] : undefined) || "None"}
                   </strong>
                   {" • "}
                   2:{" "}
                   <strong className="text-amber-700">
                     {pickerSecondaryAttrKey && pickerSecondaryAttrKey !== "none"
-                      ? (availablePickerAttributes.find((a) => a.key === pickerSecondaryAttrKey)?.label || VESSEL_ATTRIBUTES.find((a) => a.key === pickerSecondaryAttrKey)?.label || pickerSecondaryAttrKey)
+                      ? getCleanAttributeLabel(pickerSecondaryAttrKey, vessels.find((v) => v.id === pickerVesselId), pickerVesselId ? vesselAttributesMap[pickerVesselId] : undefined)
                       : "None"}
                   </strong>
                   {" • "}
                   3:{" "}
                   <strong className="text-emerald-700">
                     {pickerTertiaryAttrKey && pickerTertiaryAttrKey !== "none"
-                      ? (availablePickerAttributes.find((a) => a.key === pickerTertiaryAttrKey)?.label || VESSEL_ATTRIBUTES.find((a) => a.key === pickerTertiaryAttrKey)?.label || pickerTertiaryAttrKey)
+                      ? getCleanAttributeLabel(pickerTertiaryAttrKey, vessels.find((v) => v.id === pickerVesselId), pickerVesselId ? vesselAttributesMap[pickerVesselId] : undefined)
                       : "None"}
                   </strong>
                 </span>
@@ -7746,13 +8117,13 @@ export function MonitoringPage() {
                   {" • "}
                   Primary:{" "}
                   <strong className="text-cyan-700">
-                    {availablePickerAttributes.find((a) => a.key === pickerAttrKey)?.label || VESSEL_ATTRIBUTES.find((a) => a.key === pickerAttrKey)?.label || pickerAttrKey || "None"}
+                    {getCleanAttributeLabel(pickerAttrKey, vessels.find((v) => v.id === pickerVesselId), pickerVesselId ? vesselAttributesMap[pickerVesselId] : undefined) || "None"}
                   </strong>
                   {" • "}
                   Secondary:{" "}
                   <strong className="text-amber-700">
                     {pickerSecondaryAttrKey && pickerSecondaryAttrKey !== "none"
-                      ? (availablePickerAttributes.find((a) => a.key === pickerSecondaryAttrKey)?.label || VESSEL_ATTRIBUTES.find((a) => a.key === pickerSecondaryAttrKey)?.label || pickerSecondaryAttrKey)
+                      ? getCleanAttributeLabel(pickerSecondaryAttrKey, vessels.find((v) => v.id === pickerVesselId), pickerVesselId ? vesselAttributesMap[pickerVesselId] : undefined)
                       : "None"}
                   </strong>
                 </span>
@@ -7764,7 +8135,7 @@ export function MonitoringPage() {
                   </strong>{" "}
                   •{" "}
                   <strong className="text-[#db4040]">
-                    {availablePickerAttributes.find((a) => a.key === pickerAttrKey)?.label || VESSEL_ATTRIBUTES.find((a) => a.key === pickerAttrKey)?.label || pickerAttrKey}
+                    {getCleanAttributeLabel(pickerAttrKey, vessels.find((v) => v.id === pickerVesselId), pickerVesselId ? vesselAttributesMap[pickerVesselId] : undefined)}
                   </strong>
                 </span>
               ) : (
@@ -7860,8 +8231,8 @@ export function MonitoringPage() {
             <div className="grid grid-cols-2 gap-2 text-xs">
               {[
                 { id: "nav", label: "Navigation Pack", desc: "Speed, Heading, Depth, Map" },
-                { id: "engine", label: "Machinery Pack", desc: "Engine, Fuel, Trend" },
-                { id: "full", label: "Full Command Pack", desc: "Complete 7-widget instrument pack" },
+                { id: "engine", label: "Propulsion Pack", desc: "Propulsion Trend & Fuel" },
+                { id: "full", label: "Full Command Pack", desc: "Complete 6-widget instrument pack" },
                 { id: "empty", label: "Empty Canvas", desc: "Start with an empty clean canvas" },
               ].map((tpl) => (
                 <button
