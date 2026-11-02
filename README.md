@@ -7,6 +7,7 @@
 ### **Platform Terpadu Pemantauan Armada Kapal, IoT Navigasi Maritim & Digital Twin Telemetri Real-Time**
 
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
+[![Multi-Tenant](https://img.shields.io/badge/Architecture-Multi--Tenant%20Enterprise-8A2BE2?logo=enterprise&logoColor=white)]()
 [![React](https://img.shields.io/badge/Frontend-React%2018%20%7C%20Vite%20%7C%20TypeScript-61DAFB?logo=react&logoColor=black)](https://reactjs.org/)
 [![NodeJS](https://img.shields.io/badge/Backend-Node.js%20%7C%20Express-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%2016%20%2B%20PostGIS-4169E1?logo=postgresql&logoColor=white)](https://postgis.net/)
@@ -19,9 +20,11 @@
 
 ## 📌 Ringkasan Proyek
 
-**GeoTekno VMS** adalah platform operasional armada maritim (*fleet management & vessel monitoring*) generasi terbaru yang dirancang untuk memproses, memvisualisasikan, dan menganalisis data telemetri kapal secara *real-time*.
+**GeoTekno VMS** adalah platform operasional armada maritim (*fleet management & vessel monitoring*) generasi terbaru berskala **Multi-Tenant Enterprise** yang dirancang untuk memproses, memvisualisasikan, dan menganalisis data telemetri kapal secara *real-time*.
 
-Platform ini terhubung langsung dengan perangkat keras gateway di atas kapal (**USR-CANET200** dan modul serial) yang menangkap sinyal instrumen navigasi, transduser bawah air, dan sensor cuaca maritim berbasis protokol standar internasional:
+Platform ini mengadopsi arsitektur **Multi-Company Tenancy**, memungkinkan satu instalasi sistem cloud melayani berbagai perusahaan pelayaran, operator armada, atau instansi maritim yang berbeda (*multi-tenant*) dengan **isolasi data yang ketat**, kontrol hak akses berbasis peran granular, dan manajemen armada mandiri.
+
+Platform terhubung langsung dengan perangkat keras gateway di atas kapal (**USR-CANET200** dan modul serial) yang menangkap sinyal instrumen navigasi, transduser bawah air, dan sensor cuaca maritim berbasis protokol standar internasional:
 - **NMEA 2000 (CAN Bus 2.0B / SAE J1939 - 250 Kbps)**
 - **NMEA 0183 (Serial RS-422 / RS-232 - 4800 / 38400 bps)**
 
@@ -134,13 +137,18 @@ Platform VMS memproses parameter telemetri kapal secara terpadu melalui pemetaan
 - **Atribut Terdaftar Dinamis**: Pilihan *Telemetry Attributes* menyesuaikan dengan sensor yang terdaftar pada kapal yang dipilih.
 - **Dukungan Format Standar**: Ekspor instan ke format **CSV** dan **JSON** untuk kebutuhan audit rute, verifikasi pelayaran, atau pelaporan regulator maritim.
 
-### 7. 🔐 User Management & Role-Based Access Control (RBAC)
-- **Sistem Peran Fleksibel**:
-  - **Super Admin**: Akses penuh ke seluruh konfigurasi sistem, manajemen pengguna, pembuatan kapal/agen, dan kontrol hak akses.
-  - **Fleet Operator**: Akses operasional untuk pemantauan, pengaturan widget, dan ekspor data.
-  - **Viewer**: Hak akses hanya-baca (*read-only*) untuk monitoring tanpa izin mengubah konfigurasi.
-- **Izin Akses Berbasis Halaman**: Pengaturan hak akses (*Create, Read, Update, Delete*) per halaman secara granular.
-- **Keamanan JWT**: Otentikasi sesi terproteksi dengan JSON Web Token dan penyimpanan aman.
+### 7. 🏢 Arsitektur Multi-Tenant & Role-Based Access Control (RBAC)
+- **Multi-Company Tenancy (Isolasi Data Antar Perusahaan)**:
+  - Dirancang untuk skenario *SaaS Enterprise* di mana berbagai perusahaan pelayaran (*fleet companies / clients*) dapat menggunakan satu platform cloud terpusat tanpa saling melihat data satu sama lain.
+  - Setiap aset kapal (`core_assets`), gateway konektivitas (`core_agents`), akun pengguna (`core_users`), dan peran (`core_roles`) terikat secara ketat pada `company_id`.
+  - **Shared Socket Ingestion Cerdas**: Port TCP listening terpusat (`20005` & `20006`) dapat menerima koneksi simultan dari kapal-kapal milik berbagai tenant yang berbeda. Server secara otomatis merutekan dan mengatribusikan aliran telemetri ke tenant yang tepat berdasarkan paket pembuka *Register Content*.
+- **Hirarki Peran Pengguna Bertingkat**:
+  - **Super Admin (Platform Level)**: Otoritas tertinggi pengelola platform global. Dapat memantau seluruh tenant/perusahaan, mendaftarkan organisasi baru, dan mengatur konfigurasi master server.
+  - **Company Admin (Tenant Level)**: Otoritas penuh khusus di dalam perusahaannya sendiri. Dapat menambah/mengedit kapal milik perusahaannya, mengatur hak akses pengguna internal, dan mengelola operator armada tanpa risiko kebocoran data ke perusahaan lain.
+  - **Fleet Operator**: Akses operasional harian untuk memantau armada kapal perusahaannya, mengkustomisasi widget, dan mengekspor riwayat telemetri.
+  - **Viewer**: Hak akses hanya-baca (*read-only*) untuk pemantauan realtime tanpa izin mengubah konfigurasi aset.
+- **Izin Akses Berbasis Halaman Granular**: Pengaturan hak akses (*Create, Read, Update, Delete*) per halaman secara presisi dan dinamis.
+- **Keamanan JWT & Tenant Scoping**: Otentikasi sesi terproteksi dengan JSON Web Token yang secara otomatis menyematkan klaim identitas dan `company_id` pada setiap permintaan REST API & WebSocket.
 
 ---
 
