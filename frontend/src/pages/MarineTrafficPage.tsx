@@ -954,11 +954,80 @@ export function MarineTrafficPage() {
                         <span className="font-mono font-semibold text-slate-800">{Math.round(selectedVessel.fuel)}%</span>
                       </div>
                     )}
+                    {/* Coriolis Flow Meter Telemetry */}
+                    {selectedVessel.fuel_flow_rate !== null && selectedVessel.fuel_flow_rate !== undefined && (
+                      <div className="flex items-center justify-between py-1.5 bg-amber-50/50 -mx-3.5 px-3.5 border-y border-amber-100/60">
+                        <span className="text-amber-800 font-medium">Fuel flow rate</span>
+                        <span className="font-mono font-bold text-amber-700">{selectedVessel.fuel_flow_rate.toFixed(2)} L/h</span>
+                      </div>
+                    )}
+                    {selectedVessel.fuel_total_volume !== null && selectedVessel.fuel_total_volume !== undefined && (
+                      <div className="flex items-center justify-between py-1.5">
+                        <span className="text-slate-500">Total fuel volume</span>
+                        <span className="font-mono font-semibold text-slate-800">{selectedVessel.fuel_total_volume.toLocaleString("id-ID", { minimumFractionDigits: 1 })} L</span>
+                      </div>
+                    )}
+                    {selectedVessel.fuel_total_mass !== null && selectedVessel.fuel_total_mass !== undefined && (
+                      <div className="flex items-center justify-between py-1.5">
+                        <span className="text-slate-500">Total fuel mass</span>
+                        <span className="font-mono font-semibold text-slate-800">{selectedVessel.fuel_total_mass.toLocaleString("id-ID", { minimumFractionDigits: 1 })} kg</span>
+                      </div>
+                    )}
+                    {selectedVessel.fuel_density !== null && selectedVessel.fuel_density !== undefined && (
+                      <div className="flex items-center justify-between py-1.5">
+                        <span className="text-slate-500">Fuel density</span>
+                        <span className="font-mono font-semibold text-slate-800">{selectedVessel.fuel_density.toFixed(4)} g/cm³</span>
+                      </div>
+                    )}
+                    {selectedVessel.fuel_temperature !== null && selectedVessel.fuel_temperature !== undefined && (
+                      <div className="flex items-center justify-between py-1.5">
+                        <span className="text-slate-500">Fuel temp</span>
+                        <span className="font-mono font-semibold text-slate-800">{selectedVessel.fuel_temperature.toFixed(1)} °C</span>
+                      </div>
+                    )}
+                    {/* Sea Environment & Motion Instruments */}
+                    {selectedVessel.waterTemp !== null && selectedVessel.waterTemp !== undefined && (
+                      <div className="flex items-center justify-between py-1.5">
+                        <span className="text-slate-500">Sea water temp</span>
+                        <span className="font-mono font-semibold text-slate-800">{selectedVessel.waterTemp.toFixed(1)} °C</span>
+                      </div>
+                    )}
                     {selectedVessel.windSpeed !== null && selectedVessel.windSpeed !== undefined && (
                       <div className="flex items-center justify-between py-1.5">
                         <span className="text-slate-500">Wind speed</span>
                         <span className="font-mono font-semibold text-slate-800">{selectedVessel.windSpeed.toFixed(1)} kn</span>
                       </div>
+                    )}
+                    {selectedVessel.windAngle !== null && selectedVessel.windAngle !== undefined && (
+                      <div className="flex items-center justify-between py-1.5">
+                        <span className="text-slate-500">Wind angle</span>
+                        <span className="font-mono font-semibold text-slate-800">{Math.round(selectedVessel.windAngle)}°</span>
+                      </div>
+                    )}
+                    {(selectedVessel.pitch !== null && selectedVessel.pitch !== undefined) || (selectedVessel.roll !== null && selectedVessel.roll !== undefined) ? (
+                      <div className="flex items-center justify-between py-1.5">
+                        <span className="text-slate-500">Pitch / Roll</span>
+                        <span className="font-mono font-semibold text-slate-800">
+                          {selectedVessel.pitch !== null && selectedVessel.pitch !== undefined ? `${selectedVessel.pitch.toFixed(1)}°` : "—"} / {selectedVessel.roll !== null && selectedVessel.roll !== undefined ? `${selectedVessel.roll.toFixed(1)}°` : "—"}
+                        </span>
+                      </div>
+                    ) : null}
+                    {selectedVessel.stw !== null && selectedVessel.stw !== undefined && (
+                      <div className="flex items-center justify-between py-1.5">
+                        <span className="text-slate-500">Speed thru water</span>
+                        <span className="font-mono font-semibold text-slate-800">{selectedVessel.stw.toFixed(1)} kn</span>
+                      </div>
+                    )}
+                    {/* Dynamic Custom Attributes */}
+                    {selectedVessel.customAttributes && Object.keys(selectedVessel.customAttributes).length > 0 && (
+                      Object.entries(selectedVessel.customAttributes)
+                        .filter(([k]) => !['fuel_flow_rate', 'fuel_total_volume', 'fuel_total_mass', 'fuel_density', 'fuel_temperature'].includes(k))
+                        .map(([k, val]) => (
+                          <div key={k} className="flex items-center justify-between py-1.5">
+                            <span className="text-slate-500 capitalize">{k.replace(/_/g, " ")}</span>
+                            <span className="font-mono font-semibold text-slate-800">{typeof val === "number" ? val.toFixed(2) : String(val)}</span>
+                          </div>
+                        ))
                     )}
                     <div className="flex items-center justify-between py-1.5">
                       <span className="text-slate-500">Coordinates</span>
