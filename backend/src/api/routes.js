@@ -367,10 +367,13 @@ function createApiRouter() {
     if (agent.protocol === 'TCP_HYBRID') decoders = ['NMEA2000', 'NMEA0183'];
     else if (agent.protocol === 'TCP_NMEA0183') decoders = ['NMEA0183'];
     else if (agent.protocol === 'TCP_CANET200') decoders = ['NMEA2000'];
+    else if (agent.protocol === 'TCP_MODBUS_CORIOLIS') decoders = ['MODBUS'];
     else if (agent.config && agent.config.decoders) decoders = agent.config.decoders;
 
     const conf = agent.config || {};
-    const defaultTemplate = agent.protocol === 'TCP_NMEA0183' ? 'NMEA0183' : (agent.protocol === 'TCP_HYBRID' ? 'HYBRID' : 'NMEA2000');
+    const defaultTemplate = agent.protocol === 'TCP_MODBUS_CORIOLIS'
+      ? 'MODBUS'
+      : (agent.protocol === 'TCP_NMEA0183' ? 'NMEA0183' : (agent.protocol === 'TCP_HYBRID' ? 'HYBRID' : 'NMEA2000'));
 
     return {
       id: agent.id,

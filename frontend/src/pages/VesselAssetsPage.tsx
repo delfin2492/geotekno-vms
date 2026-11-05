@@ -240,7 +240,7 @@ export function VesselAssetsPage() {
   function openAgent(agentId?: string) {
     const agent = agents.find((item) => item.id === agentId)
     setEditingAgentId(agentId)
-    const tplKey = agent?.decoderTemplate || (agent?.decoders?.includes("NMEA0183") && agent?.decoders?.includes("NMEA2000") ? "HYBRID" : (agent?.decoders?.includes("NMEA0183") ? "NMEA0183" : "NMEA2000"))
+    const tplKey = agent?.decoderTemplate || (agent?.decoders?.includes("MODBUS") || agent?.port === 20006 ? "MODBUS" : (agent?.decoders?.includes("NMEA0183") && agent?.decoders?.includes("NMEA2000") ? "HYBRID" : (agent?.decoders?.includes("NMEA0183") ? "NMEA0183" : "NMEA2000")))
     const defaultCode = DECODER_TEMPLATES[tplKey]?.code || DECODER_TEMPLATES.HYBRID.code
 
     setAgentDraft(
