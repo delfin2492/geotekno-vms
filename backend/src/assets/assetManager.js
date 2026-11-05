@@ -23,7 +23,7 @@ class AssetManager {
 
     // Otomatis sinkronisasi ulang asset dari database saat koneksi PostgreSQL pulih
     pool.on('connect', () => {
-      this.reloadFromDatabase().catch(() => {});
+      this.reloadFromDatabase().catch(() => { });
     });
   }
 
@@ -643,7 +643,7 @@ function resolveAttributeLiveValue(snap, namespace, keyName) {
   if (ns === 'navigation') {
     if (k === 'position' || k === 'coordinates') {
       if (snap.navigation && snap.navigation.latitude !== null && snap.navigation.longitude !== null &&
-          snap.navigation.latitude !== undefined && snap.navigation.longitude !== undefined) {
+        snap.navigation.latitude !== undefined && snap.navigation.longitude !== undefined) {
         return `${snap.navigation.latitude.toFixed(4)}, ${snap.navigation.longitude.toFixed(4)}`;
       }
       return null;
@@ -674,10 +674,25 @@ function resolveAttributeLiveValue(snap, namespace, keyName) {
     if (k === 'baro_pressure') return (snap.environment && snap.environment.baro_pressure_hpa !== null && snap.environment.baro_pressure_hpa !== undefined) ? snap.environment.baro_pressure_hpa : null;
   }
 
-  if (ns === 'engine' || ns === 'propulsion') {
+  if (ns === 'engine' || ns === 'propulsion' || ns === 'machinery') {
     if (k === 'rpm') return (snap.engine && snap.engine.engine_rpm !== null && snap.engine.engine_rpm !== undefined) ? Math.round(snap.engine.engine_rpm) : null;
     if (k === 'battery_volts') return (snap.engine && snap.engine.battery_volts !== null && snap.engine.battery_volts !== undefined) ? parseFloat(snap.engine.battery_volts.toFixed(1)) : null;
     if (k === 'boost_pressure' || k === 'boost_kpa') return (snap.engine && snap.engine.boost_kpa !== null && snap.engine.boost_kpa !== undefined) ? snap.engine.boost_kpa : null;
+    if (k === 'fuel_flow_rate' || k === 'flowrate' || k === 'flow_rate') {
+      return (snap.engine && snap.engine.fuel_flow_rate !== null && snap.engine.fuel_flow_rate !== undefined) ? parseFloat(snap.engine.fuel_flow_rate.toFixed(4)) : null;
+    }
+    if (k === 'fuel_total_volume' || k === 'totalvolume' || k === 'total_volume') {
+      return (snap.engine && snap.engine.fuel_total_volume !== null && snap.engine.fuel_total_volume !== undefined) ? parseFloat(snap.engine.fuel_total_volume.toFixed(4)) : null;
+    }
+    if (k === 'fuel_total_mass' || k === 'totalmass' || k === 'total_mass') {
+      return (snap.engine && snap.engine.fuel_total_mass !== null && snap.engine.fuel_total_mass !== undefined) ? parseFloat(snap.engine.fuel_total_mass.toFixed(4)) : null;
+    }
+    if (k === 'fuel_density' || k === 'density') {
+      return (snap.engine && snap.engine.fuel_density !== null && snap.engine.fuel_density !== undefined) ? parseFloat(snap.engine.fuel_density.toFixed(4)) : null;
+    }
+    if (k === 'fuel_temperature' || k === 'fuel_temp' || k === 'temperature') {
+      return (snap.engine && snap.engine.fuel_temperature !== null && snap.engine.fuel_temperature !== undefined) ? parseFloat(snap.engine.fuel_temperature.toFixed(2)) : null;
+    }
   }
 
   if (ns === 'electrical') {
