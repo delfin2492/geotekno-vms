@@ -107,27 +107,44 @@ function decode(payload, context) {
   },
   MODBUS: {
     id: "MODBUS",
-    name: "Modbus TCP / RTU over TCP (Fuel & Engine)",
-    description: "Mendekode register Modbus untuk flowmeter solar dan monitor genset.",
+    name: "Coriolis Flow Meter (Modbus RTU / Port 20006)",
+    description: "Mendekode register Modbus Coriolis: Flow Rate, Total Volume, Total Massa, Suhu & Density BBM.",
     decoders: ["NMEA0183"],
-    samplePayload: "01 03 04 04 B0 03 E8 7B 4A",
+    samplePayload: "01 03 1C 3F 57 88 59 42 02 E6 9A 42 34 CC CD 00 00 00 00 00 00 00 00 44 83 9A 73 44 9C 40 00 85 D9",
     code: `/**
- * Modbus TCP Register Decoder
- * @param {string|Buffer} payload - Modbus Frame
- * @param {Object} context - { agentId, port }
+ * Coriolis Flow Meter Modbus RTU Decoder (Word Swap CDAB Float32)
+ * @param {string|Buffer} payload - Modbus RTU Frame Buffer / Hex String
+ * @param {Object} context - { agentId, port, rawBytes }
  */
 function decode(payload, context) {
-  // Contoh decoding register:
-  // Register 40001: Fuel Flow Rate (Liter/Jam)
-  // Register 40002: Engine Coolant Temp (°C)
+  // Helper: Decode Float32 format CDAB (Byte MSB, Word LSB)
+  function decodeFloat32CDAB(b0, b1, b2, b3) {
+    const buf = Buffer.from([b2, b3, b0, b1]);
+    const val = buf.readFloatBE(0);
+    return Number.isFinite(val) ? Number(val.toFixed(4)) : 0;
+  }
 
+  // Jika payload adalah raw buffer (Function 0x03, 28 byte data dari Reg 248)
+  const bytes = Buffer.isBuffer(payload) ? payload : (context?.rawBytes || Buffer.from(String(payload).replace(/\\s+/g, ''), 'hex'));
+
+  if (bytes && bytes.length >= 31 && bytes[1] === 0x03) {
+    const data = bytes.subarray(3, 3 + bytes[2]);
+    return {
+      fuel_density: decodeFloat32CDAB(data[0], data[1], data[2], data[3]),         // Reg 248 (g/cm³)
+      fuel_temperature: decodeFloat32CDAB(data[4], data[5], data[6], data[7]),     // Reg 250 (°C)
+      fuel_flow_rate: decodeFloat32CDAB(data[8], data[9], data[10], data[11]),     // Reg 252 (L/h)
+      fuel_total_mass: decodeFloat32CDAB(data[20], data[21], data[22], data[23]), // Reg 258 (kg)
+      fuel_total_volume: decodeFloat32CDAB(data[24], data[25], data[26], data[27]) // Reg 260 (Liter)
+    };
+  }
+
+  // Nilai default / simulasi jika raw buffer belum terdeteksi
   return {
-    protocol: 'MODBUS_TCP',
-    engineRpm: 1200,
-    fuelFlowLph: 45.5,
-    coolantTempC: 78.2,
-    generatorLoadPercent: 62.0,
-    timestamp: new Date().toISOString()
+    fuel_flow_rate: 45.2,
+    fuel_total_volume: 1250.5,
+    fuel_total_mass: 1052.8,
+    fuel_density: 0.8425,
+    fuel_temperature: 32.4
   };
 }`,
   },

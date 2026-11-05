@@ -517,6 +517,11 @@ function createApiRouter() {
       boostKpa: boostKpa,
       batteryVolts: batteryVolts,
       batteryAmps: batteryAmps,
+      fuel_flow_rate: eng && eng.fuel_flow_rate !== undefined ? eng.fuel_flow_rate : null,
+      fuel_total_volume: eng && eng.fuel_total_volume !== undefined ? eng.fuel_total_volume : null,
+      fuel_total_mass: eng && eng.fuel_total_mass !== undefined ? eng.fuel_total_mass : null,
+      fuel_density: eng && eng.fuel_density !== undefined ? eng.fuel_density : null,
+      fuel_temperature: eng && eng.fuel_temperature !== undefined ? eng.fuel_temperature : null,
       destination: meta.destination || '',
       company_id: info.company_id || 'comp_geotekno',
       companyId: info.company_id || 'comp_geotekno',
@@ -802,6 +807,39 @@ function createApiRouter() {
         ? `Agent aktif pada port ${agent.port}. Client terhubung.` 
         : `Agent listening pada port ${agent.port}. Menunggu koneksi TCP client.`,
     });
+  });
+
+  // --- CORIOLIS MODBUS COMMAND (Write / Reset Parameter) ---
+  router.post(['/agents/:id/coriolis-command', '/v1/agents/:id/coriolis-command'], async (req, res) => {
+    try {
+      const agent = agentManager.getAgent(req.params.id) || Array.from(agentManager.agents.values()).find(a => a.port === 20006);
+      if (!agent) {
+        return res.status(404).json({ error: `Agent Coriolis tidak ditemukan` });
+      }
+      const { register, value, type = 'float32', label } = req.body;
+      const reg = parseInt(register, 10);
+      const val = parseFloat(value);
+      if (isNaN(reg) || isNaN(val)) {
+        return res.status(400).json({ error: 'Register dan value wajib berupa numerik!' });
+      }
+
+      const { buildModbusWriteFloat32, buildModbusWriteSingleRegister } = require('../agents/agentManager');
+      let writePacket = null;
+      if (type === 'float32') {
+        writePacket = buildModbusWriteFloat32(agent.slaveId || 1, reg, val);
+      } else {
+        writePacket = buildModbusWriteSingleRegister(agent.slaveId || 1, reg, Math.round(val));
+      }
+
+      const reply = await agent.sendCoriolisCommand(writePacket);
+      res.json({
+        success: true,
+        message: `${label || `Register ${reg}`} berhasil dikirim ke Coriolis dengan nilai ${val}`,
+        reply,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // --- V1 AIS TARGETS ---

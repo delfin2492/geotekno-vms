@@ -48,6 +48,13 @@ class VesselState {
     this.battery_amps = null;
     this.battery_temp_c = null;
 
+    // Coriolis Flow Meter Telemetry (Modbus Reg 248..261)
+    this.fuel_flow_rate = null;
+    this.fuel_total_volume = null;
+    this.fuel_total_mass = null;
+    this.fuel_density = null;
+    this.fuel_temperature = null;
+
     // Dynamic Custom Telemetry Attributes dari Script Decoder
     this.customAttributes = new Map();
 
@@ -313,6 +320,26 @@ class VesselState {
       else if (k === 'pitch' || k === 'pitch_deg') this.pitch_deg = typeof val === 'number' ? val : parseFloat(val);
       else if (k === 'roll' || k === 'roll_deg') this.roll_deg = typeof val === 'number' ? val : parseFloat(val);
       else if (k === 'rot' || k === 'rot_deg_s') this.rot_deg_s = typeof val === 'number' ? val : parseFloat(val);
+      else if (k === 'fuel_flow_rate' || k === 'flowrate' || k === 'fuelflow' || k === 'flow_rate') {
+        this.fuel_flow_rate = typeof val === 'number' ? val : parseFloat(val);
+        this.customAttributes.set('fuel_flow_rate', this.fuel_flow_rate);
+      }
+      else if (k === 'fuel_total_volume' || k === 'totalvolume' || k === 'fuelvolume' || k === 'total_volume') {
+        this.fuel_total_volume = typeof val === 'number' ? val : parseFloat(val);
+        this.customAttributes.set('fuel_total_volume', this.fuel_total_volume);
+      }
+      else if (k === 'fuel_total_mass' || k === 'totalmass' || k === 'fuelmass' || k === 'total_mass') {
+        this.fuel_total_mass = typeof val === 'number' ? val : parseFloat(val);
+        this.customAttributes.set('fuel_total_mass', this.fuel_total_mass);
+      }
+      else if (k === 'fuel_density' || k === 'density') {
+        this.fuel_density = typeof val === 'number' ? val : parseFloat(val);
+        this.customAttributes.set('fuel_density', this.fuel_density);
+      }
+      else if (k === 'fuel_temperature' || k === 'fuel_temp' || k === 'temperature') {
+        this.fuel_temperature = typeof val === 'number' ? val : parseFloat(val);
+        this.customAttributes.set('fuel_temperature', this.fuel_temperature);
+      }
       else {
         // Atribut kustom dinamis baru!
         this.customAttributes.set(key, val);
@@ -388,6 +415,11 @@ class VesselState {
         battery_volts: this.battery_volts,
         battery_amps: this.battery_amps,
         battery_temp_c: this.battery_temp_c,
+        fuel_flow_rate: this.fuel_flow_rate,
+        fuel_total_volume: this.fuel_total_volume,
+        fuel_total_mass: this.fuel_total_mass,
+        fuel_density: this.fuel_density,
+        fuel_temperature: this.fuel_temperature,
       },
       custom: Object.fromEntries(this.customAttributes),
       ais: {

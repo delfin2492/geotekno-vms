@@ -179,6 +179,11 @@ export function FleetProvider({ children }: { children: ReactNode }) {
                       if (u.roll !== undefined) updated.roll = u.roll
                       if (u.rpm !== undefined) updated.rpm = u.rpm
                       if (u.batteryVolts !== undefined) updated.batteryVolts = u.batteryVolts
+                      if (u.fuel_flow_rate !== undefined) updated.fuel_flow_rate = u.fuel_flow_rate
+                      if (u.fuel_total_volume !== undefined) updated.fuel_total_volume = u.fuel_total_volume
+                      if (u.fuel_total_mass !== undefined) updated.fuel_total_mass = u.fuel_total_mass
+                      if (u.fuel_density !== undefined) updated.fuel_density = u.fuel_density
+                      if (u.fuel_temperature !== undefined) updated.fuel_temperature = u.fuel_temperature
                       if (u.position) updated.position = u.position
                       if (u.customAttributes) {
                         updated.customAttributes = {

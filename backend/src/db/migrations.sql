@@ -131,12 +131,17 @@ CREATE INDEX IF NOT EXISTS idx_ais_geom ON tbl_ais_targets USING GIST (geom);
 -- SEED DATA DEFAULT (AGENT UTAMA & ASSET UTAMA)
 -- ============================================================
 INSERT INTO core_agents (id, name, protocol, config, status)
-VALUES ('agent_7a3d9b1e', 'Agent TCP USR-CANET200 (Default)', 'TCP_CANET200', '{"port": 20005, "host": "0.0.0.0"}', 'ONLINE')
-ON CONFLICT (id) DO NOTHING;
+VALUES 
+  ('agent_7a3d9b1e', 'Agent TCP USR-CANET200 (Default)', 'TCP_CANET200', '{"port": 20005, "host": "0.0.0.0"}', 'ONLINE'),
+  ('agent_f4a8b2c6', 'Agent Coriolis Flow Meter (Port 20006)', 'TCP_MODBUS_CORIOLIS', '{"host": "0.0.0.0", "port": 20006, "modbusPolling": true, "slaveId": 1, "startRegister": 248, "registerCount": 14, "pollIntervalMs": 2000}', 'WAITING')
+ON CONFLICT (id) DO UPDATE SET 
+  name = EXCLUDED.name,
+  protocol = EXCLUDED.protocol,
+  config = EXCLUDED.config;
 
 INSERT INTO core_assets (id, agent_id, name, type, metadata)
-VALUES ('vessel_c2e2cffb', 'agent_7a3d9b1e', 'KM Geo Tekno', 'VESSEL', '{"mmsi": "525015359", "type": "Cargo/Survey", "registration_code": "KM+Geo+Tekno"}')
-ON CONFLICT (id) DO NOTHING;
+VALUES ('vessel_c2e2cffb', 'agent_7a3d9b1e', 'KM Geo Tekno', 'VESSEL', '{"mmsi": "525015359", "type": "Cargo/Survey", "registration_code": "KM+Geo+Tekno", "agentIds": ["agent_7a3d9b1e", "agent_f4a8b2c6"]}')
+ON CONFLICT (id) DO UPDATE SET metadata = '{"mmsi": "525015359", "type": "Cargo/Survey", "registration_code": "KM+Geo+Tekno", "agentIds": ["agent_7a3d9b1e", "agent_f4a8b2c6"]}';
 
 -- Seed default widgets
 INSERT INTO core_widgets (id, title, widget_type, asset_id, is_active)
@@ -160,7 +165,12 @@ VALUES
   ('vessel_c2e2cffb', 'environment', 'depth', 'Water Depth Below Keel', 'm', 'PGN 128267'),
   ('vessel_c2e2cffb', 'environment', 'wind_speed', 'Apparent Wind Speed', 'kn', 'PGN 130306'),
   ('vessel_c2e2cffb', 'environment', 'wind_angle', 'Apparent Wind Angle', 'deg', 'PGN 130306'),
-  ('vessel_c2e2cffb', 'environment', 'water_temp', 'Sea Water Temperature', '°C', 'PGN 130310')
+  ('vessel_c2e2cffb', 'environment', 'water_temp', 'Sea Water Temperature', '°C', 'PGN 130310'),
+  ('vessel_c2e2cffb', 'machinery', 'fuel_flow_rate', 'Fuel Flow Rate (Coriolis)', 'L/h', 'Modbus Reg 252 (Float32)'),
+  ('vessel_c2e2cffb', 'machinery', 'fuel_total_volume', 'Total Fuel Volume', 'L', 'Modbus Reg 260 (Float32)'),
+  ('vessel_c2e2cffb', 'machinery', 'fuel_total_mass', 'Total Fuel Mass', 'kg', 'Modbus Reg 258 (Float32)'),
+  ('vessel_c2e2cffb', 'machinery', 'fuel_density', 'Fuel Density', 'g/cm³', 'Modbus Reg 248 (Float32)'),
+  ('vessel_c2e2cffb', 'machinery', 'fuel_temperature', 'Fuel Temperature', '°C', 'Modbus Reg 250 (Float32)')
 ON CONFLICT (asset_id, namespace, key_name) DO NOTHING;
 
 -- ============================================================

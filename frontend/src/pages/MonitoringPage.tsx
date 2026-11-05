@@ -286,9 +286,14 @@ export function getVesselAttributeValue(vessel?: Vessel | null, attrKey?: string
   if (k === "windangle") return vessel.windAngle ?? null
   if (k === "rpm" || k === "enginerpm") return vessel.rpm ?? null
   if (k === "fuel") return vessel.fuel ?? null
+  if (k === "fuelflowrate" || k === "fuelflow" || k === "flowrate") return vessel.fuel_flow_rate ?? (vessel as any).customAttributes?.fuel_flow_rate ?? null
+  if (k === "fueltotalvolume" || k === "fuelvolume" || k === "totalvolume") return vessel.fuel_total_volume ?? (vessel as any).customAttributes?.fuel_total_volume ?? null
+  if (k === "fueltotalmass" || k === "fuelmass" || k === "totalmass") return vessel.fuel_total_mass ?? (vessel as any).customAttributes?.fuel_total_mass ?? null
+  if (k === "fueldensity" || k === "density") return vessel.fuel_density ?? (vessel as any).customAttributes?.fuel_density ?? null
+  if (k === "fueltemp" || k === "fueltemperature") return vessel.fuel_temperature ?? (vessel as any).customAttributes?.fuel_temperature ?? null
   if (k === "engineload") return vessel.engineLoad ?? null
   if (k === "hdop") return vessel.hdop ?? null
-  const fallback = (vessel as any)[attrKey] ?? (vessel as any)[k]
+  const fallback = (vessel as any)[attrKey] ?? (vessel as any)[k] ?? (vessel as any).customAttributes?.[attrKey] ?? (vessel as any).customAttributes?.[k]
   if (typeof fallback === "number") return fallback
   if (typeof fallback === "string") {
     const parsed = parseFloat(fallback)
@@ -534,6 +539,71 @@ export const VESSEL_ATTRIBUTES: VesselAttributeMeta[] = [
     icon: Fuel,
     getValue: (v) => v.fuel,
     getFormatted: (v) => `${formatNum(v.fuel, 0)}%`,
+  },
+  {
+    key: "fuel_flow_rate",
+    label: "Fuel Flow Rate (Coriolis)",
+    category: "Machinery",
+    unit: "L/h",
+    recommendedType: "speed",
+    icon: Fuel,
+    getValue: (v) => v.fuel_flow_rate ?? (v as any).customAttributes?.fuel_flow_rate,
+    getFormatted: (v) => {
+      const val = v.fuel_flow_rate ?? (v as any).customAttributes?.fuel_flow_rate;
+      return val !== null && val !== undefined ? `${formatNum(val, 2)} L/h` : "—";
+    },
+  },
+  {
+    key: "fuel_total_volume",
+    label: "Total Fuel Volume (Coriolis)",
+    category: "Machinery",
+    unit: "L",
+    recommendedType: "kpi",
+    icon: Gauge,
+    getValue: (v) => v.fuel_total_volume ?? (v as any).customAttributes?.fuel_total_volume,
+    getFormatted: (v) => {
+      const val = v.fuel_total_volume ?? (v as any).customAttributes?.fuel_total_volume;
+      return val !== null && val !== undefined ? `${Number(val).toLocaleString("id-ID", { minimumFractionDigits: 1 })} L` : "—";
+    },
+  },
+  {
+    key: "fuel_total_mass",
+    label: "Total Fuel Mass (Coriolis)",
+    category: "Machinery",
+    unit: "kg",
+    recommendedType: "kpi",
+    icon: Gauge,
+    getValue: (v) => v.fuel_total_mass ?? (v as any).customAttributes?.fuel_total_mass,
+    getFormatted: (v) => {
+      const val = v.fuel_total_mass ?? (v as any).customAttributes?.fuel_total_mass;
+      return val !== null && val !== undefined ? `${Number(val).toLocaleString("id-ID", { minimumFractionDigits: 1 })} kg` : "—";
+    },
+  },
+  {
+    key: "fuel_density",
+    label: "Fuel Density (Coriolis)",
+    category: "Machinery",
+    unit: "g/cm³",
+    recommendedType: "telemetry",
+    icon: CircleGauge,
+    getValue: (v) => v.fuel_density ?? (v as any).customAttributes?.fuel_density,
+    getFormatted: (v) => {
+      const val = v.fuel_density ?? (v as any).customAttributes?.fuel_density;
+      return val !== null && val !== undefined ? `${formatNum(val, 4)} g/cm³` : "—";
+    },
+  },
+  {
+    key: "fuel_temperature",
+    label: "Fuel Temperature (Coriolis)",
+    category: "Machinery",
+    unit: "°C",
+    recommendedType: "telemetry",
+    icon: Thermometer,
+    getValue: (v) => v.fuel_temperature ?? (v as any).customAttributes?.fuel_temperature,
+    getFormatted: (v) => {
+      const val = v.fuel_temperature ?? (v as any).customAttributes?.fuel_temperature;
+      return val !== null && val !== undefined ? `${formatNum(val, 2)} °C` : "—";
+    },
   },
   {
     key: "rpm",

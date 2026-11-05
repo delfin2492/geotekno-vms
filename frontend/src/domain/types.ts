@@ -74,6 +74,11 @@ export interface Vessel {
   boostKpa?: number | null
   batteryVolts?: number | null
   batteryAmps?: number | null
+  fuel_flow_rate?: number | null
+  fuel_total_volume?: number | null
+  fuel_total_mass?: number | null
+  fuel_density?: number | null
+  fuel_temperature?: number | null
   destination: string
   quality: DataQuality
   updatedAt: string

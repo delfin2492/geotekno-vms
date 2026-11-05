@@ -47,6 +47,102 @@ function compileDecoder(codeString) {
   }
 }
 
+/**
+ * Checksum CRC16 Modbus RTU
+ */
+function calcModbusCRC16(buffer) {
+  let crc = 0xFFFF;
+  for (let i = 0; i < buffer.length; i++) {
+    crc ^= buffer[i];
+    for (let j = 0; j < 8; j++) {
+      if ((crc & 0x0001) !== 0) {
+        crc = (crc >> 1) ^ 0xA001;
+      } else {
+        crc = crc >> 1;
+      }
+    }
+  }
+  return [crc & 0xFF, (crc >> 8) & 0xFF];
+}
+
+/**
+ * Format Buffer ke string HEX spasi
+ */
+function toHexStr(buf) {
+  return buf.toString('hex').match(/.{1,2}/g)?.join(' ').toUpperCase() || '';
+}
+
+/**
+ * Decode 4-byte buffer (Byte MSB, Word LSB / CDAB) menjadi Float32
+ */
+function decodeFloat32CDAB(buf) {
+  if (!buf || buf.length < 4) return 0;
+  // Format CDAB: [b0, b1, b2, b3] -> disusun kembali ke [b2, b3, b0, b1]
+  const swapped = Buffer.from([buf[2], buf[3], buf[0], buf[1]]);
+  const val = swapped.readFloatBE(0);
+  return Number.isFinite(val) ? Number(val.toFixed(4)) : 0;
+}
+
+/**
+ * Encode Float32 dengan Byte Order MSB, Word Order LSB (CDAB / Word Swap)
+ */
+function encodeFloat32CDAB(value) {
+  const rawBuf = Buffer.alloc(4);
+  rawBuf.writeFloatBE(value, 0); // [A, B, C, D]
+  // Susun ke format CDAB: [C, D, A, B]
+  return Buffer.from([rawBuf[2], rawBuf[3], rawBuf[0], rawBuf[1]]);
+}
+
+/**
+ * Buat paket Modbus RTU Read Request (Func 0x03)
+ */
+function buildModbusReadRequest(slaveId, funcCode, startAddr, regCount) {
+  const raw = [
+    slaveId,
+    funcCode,
+    (startAddr >> 8) & 0xFF,
+    startAddr & 0xFF,
+    (regCount >> 8) & 0xFF,
+    regCount & 0xFF,
+  ];
+  const [crcLow, crcHigh] = calcModbusCRC16(Buffer.from(raw));
+  return Buffer.from([...raw, crcLow, crcHigh]);
+}
+
+/**
+ * Buat paket Modbus RTU Write Single Register 16-bit (Func 0x06)
+ */
+function buildModbusWriteSingleRegister(slaveId, regAddr, value) {
+  const raw = [
+    slaveId,
+    0x06,
+    (regAddr >> 8) & 0xFF,
+    regAddr & 0xFF,
+    (value >> 8) & 0xFF,
+    value & 0xFF,
+  ];
+  const [crcL, crcH] = calcModbusCRC16(Buffer.from(raw));
+  return Buffer.from([...raw, crcL, crcH]);
+}
+
+/**
+ * Buat paket Modbus RTU Write Float32 (Func 0x10 - Write Multiple Registers 2 Regs)
+ */
+function buildModbusWriteFloat32(slaveId, regAddr, floatValue) {
+  const floatBuf = encodeFloat32CDAB(floatValue); // 4 bytes CDAB
+  const raw = [
+    slaveId,
+    0x10,
+    (regAddr >> 8) & 0xFF,
+    regAddr & 0xFF,
+    0x00, 0x02, // 2 register
+    0x04,       // 4 byte data
+    floatBuf[0], floatBuf[1], floatBuf[2], floatBuf[3],
+  ];
+  const [crcL, crcH] = calcModbusCRC16(Buffer.from(raw));
+  return Buffer.from([...raw, crcL, crcH]);
+}
+
 class TcpUsrAgentInstance {
   constructor(agentRow) {
     this.id = agentRow.id;
@@ -69,6 +165,14 @@ class TcpUsrAgentInstance {
     this.fastPacket = new FastPacketReassembler();
     this.isoTp = new IsoTpReassembler();
     this.customDecoderFn = compileDecoder(this.config.decoderCode);
+
+    // Konfigurasi Polling Modbus Coriolis (Default aktif di port 20006 atau jika protokol TCP_MODBUS_CORIOLIS)
+    this.modbusPolling = (this.protocol === 'TCP_MODBUS_CORIOLIS' || this.port === 20006 || this.config.modbusPolling === true);
+    this.slaveId = this.config.slaveId || 1;
+    this.startRegister = this.config.startRegister !== undefined ? this.config.startRegister : 248;
+    this.registerCount = this.config.registerCount || 14;
+    this.pollIntervalMs = this.config.pollIntervalMs || 2000;
+    this.pendingCommandResolver = null;
   }
 
   start() {
@@ -85,6 +189,25 @@ class TcpUsrAgentInstance {
       let asciiLineBuffer = '';
       let boundAssetId = null;
       let isRegistered = false;
+      let modbusPollTimer = null;
+
+      // Start Polling Modbus jika dikonfigurasi (misal: Coriolis Flow Meter)
+      if (this.modbusPolling) {
+        socket.setKeepAlive(true, 5000);
+        modbusPollTimer = setInterval(() => {
+          if (!socket.writable) return;
+          if (this.pendingCommandResolver) return;
+          const req = buildModbusReadRequest(this.slaveId, 0x03, this.startRegister, this.registerCount);
+          try { socket.write(req); } catch (e) {}
+        }, this.pollIntervalMs);
+
+        setTimeout(() => {
+          if (socket.writable && !this.pendingCommandResolver) {
+            const req = buildModbusReadRequest(this.slaveId, 0x03, this.startRegister, this.registerCount);
+            try { socket.write(req); } catch (e) {}
+          }
+        }, 500);
+      }
 
       socket.on('data', (chunk) => {
         // Broadcast data mentah ke observer clients lainnya (misal: Node-RED TCP Client)
@@ -95,6 +218,82 @@ class TcpUsrAgentInstance {
         }
 
         if (!chunk || chunk.length === 0) return;
+
+        // ==========================================
+        // PIPELINE DECODER MODBUS RTU CORIOLIS FLOW METER
+        // ==========================================
+        if (chunk.length >= 5) {
+          const dataPart = chunk.subarray(0, chunk.length - 2);
+          const [crcL, crcH] = calcModbusCRC16(dataPart);
+          const isModbusCrcValid = (chunk[chunk.length - 2] === crcL && chunk[chunk.length - 1] === crcH);
+
+          if (isModbusCrcValid) {
+            const rxFunc = chunk[1];
+
+            // Respon Write Command (Func 0x06 / 0x10)
+            if (rxFunc === 0x06 || rxFunc === 0x10) {
+              if (this.pendingCommandResolver) {
+                const resolver = this.pendingCommandResolver;
+                this.pendingCommandResolver = null;
+                resolver(null, { success: true, func: rxFunc, hex: toHexStr(chunk) });
+              }
+              return;
+            }
+
+            // Respon Modbus Exception (0x80 | func)
+            if (rxFunc & 0x80) {
+              const errCode = chunk[2];
+              const desc = `Modbus Exception Code 0x${errCode ? errCode.toString(16) : '??'}`;
+              if (this.pendingCommandResolver) {
+                const resolver = this.pendingCommandResolver;
+                this.pendingCommandResolver = null;
+                resolver(new Error(`${desc} [${toHexStr(chunk)}]`));
+              }
+              return;
+            }
+
+            // Respon Read Holding Registers (Func 0x03)
+            if (rxFunc === 0x03) {
+              const byteCount = chunk[2];
+              const payload = chunk.subarray(3, 3 + byteCount);
+              if (payload.length >= 28) {
+                // Ekstrak 5 parameter Coriolis (Word Swap CDAB Float32)
+                const density     = decodeFloat32CDAB(payload.subarray(0, 4));   // Reg 248..249
+                const temperature = decodeFloat32CDAB(payload.subarray(4, 8));   // Reg 250..251
+                const flowRate    = decodeFloat32CDAB(payload.subarray(8, 12));  // Reg 252..253
+                const totalMass   = decodeFloat32CDAB(payload.subarray(20, 24)); // Reg 258..259
+                const totalVolume = decodeFloat32CDAB(payload.subarray(24, 28)); // Reg 260..261
+
+                const decoded = {
+                  fuel_flow_rate: flowRate,
+                  fuel_total_volume: totalVolume,
+                  fuel_total_mass: totalMass,
+                  fuel_density: density,
+                  fuel_temperature: temperature,
+                };
+
+                this.updateFps();
+                this.dispatchCustomToAssets(decoded, boundAssetId);
+
+                logBuffer.addLog({
+                  agent_id: this.id,
+                  port: this.port,
+                  protocol: 'MODBUS',
+                  type: 'CORIOLIS_TELEMETRY',
+                  raw: `[SLAVE ${this.slaveId}] Flow: ${flowRate} L/h | TotVol: ${totalVolume} L | TotMass: ${totalMass} kg | Density: ${density} g/cm³ | Temp: ${temperature} °C`,
+                  decoded: decoded,
+                  vessel_id: boundAssetId || null,
+                  category: 'MACHINERY',
+                });
+
+                if (this.totalFrames % 10 === 1) {
+                  console.log(`[AGENT ${this.id}] CORIOLIS RX: Flow=${flowRate} L/h | TotVol=${totalVolume} L | TotMass=${totalMass} kg | Density=${density} g/cm³ | Temp=${temperature} °C`);
+                }
+                return;
+              }
+            }
+          }
+        }
 
         // Custom Decoder Hook jika dikonfigurasi oleh user (Alternatif Dinamis)
         if (this.customDecoderFn) {
@@ -330,6 +529,14 @@ class TcpUsrAgentInstance {
 
       socket.on('close', () => {
         console.log(`[AGENT ${this.id}] Koneksi dari ${remote} terputus.`);
+        if (modbusPollTimer) {
+          clearInterval(modbusPollTimer);
+          modbusPollTimer = null;
+        }
+        if (this.pendingCommandResolver) {
+          this.pendingCommandResolver(new Error('Koneksi terputus saat menunggu balasan Modbus.'));
+          this.pendingCommandResolver = null;
+        }
         this.sockets.delete(socket);
         if (this.activeSocket === socket) {
           this.activeSocket = this.sockets.size > 0 ? Array.from(this.sockets)[0] : null;
@@ -465,6 +672,70 @@ class TcpUsrAgentInstance {
     }
   }
 
+  dispatchCustomToAssets(decodedData, targetAssetId = null) {
+    if (targetAssetId) {
+      const assetItem = assetManager.getAsset(targetAssetId);
+      if (assetItem && assetItem.state) {
+        assetItem.state.updateFrameStats();
+        assetItem.state.applyCustomData(decodedData);
+        broadcastLiveTelemetry(targetAssetId, assetItem.state.getSnapshot());
+        return;
+      }
+    }
+
+    let dispatched = false;
+    for (const [assetId, assetItem] of assetManager.assets.entries()) {
+      const assigned = Array.isArray(assetItem.info.metadata?.agentIds)
+        ? assetItem.info.metadata.agentIds.includes(this.id)
+        : (assetItem.info.agent_id === this.id);
+      const isSecondary = assetItem.info.metadata?.secondary_agent_id === this.id;
+      if (assigned || isSecondary) {
+        dispatched = true;
+        assetItem.state.updateFrameStats();
+        assetItem.state.applyCustomData(decodedData);
+        broadcastLiveTelemetry(assetId, assetItem.state.getSnapshot());
+      }
+    }
+
+    // Fallback: Jika port shared (20006) dan belum spesifik terikat, suntikkan ke kapal utama
+    if (!dispatched) {
+      const all = assetManager.getAllAssets();
+      const primary = all.find((a) => a.id === 'vessel_c2e2cffb') || all[0];
+      if (primary && primary.state) {
+        primary.state.updateFrameStats();
+        primary.state.applyCustomData(decodedData);
+        broadcastLiveTelemetry(primary.id, primary.state.getSnapshot());
+      }
+    }
+  }
+
+  sendCoriolisCommand(packetBuffer, timeoutMs = 2500) {
+    return new Promise((resolve, reject) => {
+      if (!this.activeSocket || !this.activeSocket.writable) {
+        return reject(new Error('Koneksi flow meter USR-CANET200 tidak aktif atau terputus!'));
+      }
+
+      const timeout = setTimeout(() => {
+        this.pendingCommandResolver = null;
+        reject(new Error(`Timeout: Tidak ada balasan dari flow meter (2.5 detik). Paket: [${toHexStr(packetBuffer)}]`));
+      }, timeoutMs);
+
+      this.pendingCommandResolver = (err, res) => {
+        clearTimeout(timeout);
+        if (err) reject(err);
+        else resolve(res);
+      };
+
+      try {
+        this.activeSocket.write(packetBuffer);
+      } catch (err) {
+        clearTimeout(timeout);
+        this.pendingCommandResolver = null;
+        reject(err);
+      }
+    });
+  }
+
   stop() {
     if (this.activeSocket) {
       try { this.activeSocket.destroy(); } catch (e) {}
@@ -508,11 +779,15 @@ class AgentManager {
 
   async init() {
     try {
-      // Pastikan Agent RS485 NMEA 0183 di port 20006 terdaftar
+      // Pastikan Agent Coriolis Flow Meter di port 20006 terdaftar
       await pool.query(`
         INSERT INTO core_agents (id, name, protocol, config, status, company_id)
-        VALUES ('agent_f4a8b2c6', 'Agent RS485 NMEA 0183 (Port 20006)', 'TCP_NMEA0183', '{"host": "0.0.0.0", "port": 20006}', 'WAITING', 'comp_geotekno')
-        ON CONFLICT (id) DO UPDATE SET config = '{"host": "0.0.0.0", "port": 20006}', name = 'Agent RS485 NMEA 0183 (Port 20006)', company_id = 'comp_geotekno'
+        VALUES ('agent_f4a8b2c6', 'Agent Coriolis Flow Meter (Port 20006)', 'TCP_MODBUS_CORIOLIS', '{"host": "0.0.0.0", "port": 20006, "modbusPolling": true, "slaveId": 1, "startRegister": 248, "registerCount": 14, "pollIntervalMs": 2000}', 'WAITING', 'comp_geotekno')
+        ON CONFLICT (id) DO UPDATE SET 
+          config = '{"host": "0.0.0.0", "port": 20006, "modbusPolling": true, "slaveId": 1, "startRegister": 248, "registerCount": 14, "pollIntervalMs": 2000}',
+          name = 'Agent Coriolis Flow Meter (Port 20006)',
+          protocol = 'TCP_MODBUS_CORIOLIS',
+          company_id = 'comp_geotekno'
       `);
 
       const res = await pool.query('SELECT * FROM core_agents ORDER BY created_at ASC');
@@ -532,10 +807,10 @@ class AgentManager {
       });
       this.registerAndStartAgent({
         id: 'agent_f4a8b2c6',
-        name: 'Agent RS485 NMEA 0183 (Port 20006)',
-        protocol: 'TCP_NMEA0183',
+        name: 'Agent Coriolis Flow Meter (Port 20006)',
+        protocol: 'TCP_MODBUS_CORIOLIS',
         company_id: 'comp_geotekno',
-        config: { port: 20006, host: '0.0.0.0' },
+        config: { port: 20006, host: '0.0.0.0', modbusPolling: true, slaveId: 1, startRegister: 248, registerCount: 14, pollIntervalMs: 2000 },
       });
     }
   }
@@ -650,4 +925,6 @@ const agentManager = new AgentManager();
 
 module.exports = {
   agentManager,
+  buildModbusWriteFloat32,
+  buildModbusWriteSingleRegister,
 };
