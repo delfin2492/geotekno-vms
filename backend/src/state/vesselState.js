@@ -322,23 +322,18 @@ class VesselState {
       else if (k === 'rot' || k === 'rot_deg_s') this.rot_deg_s = typeof val === 'number' ? val : parseFloat(val);
       else if (k === 'fuel_flow_rate' || k === 'flowrate' || k === 'fuelflow' || k === 'flow_rate') {
         this.fuel_flow_rate = typeof val === 'number' ? val : parseFloat(val);
-        this.customAttributes.set('fuel_flow_rate', this.fuel_flow_rate);
       }
       else if (k === 'fuel_total_volume' || k === 'totalvolume' || k === 'fuelvolume' || k === 'total_volume') {
         this.fuel_total_volume = typeof val === 'number' ? val : parseFloat(val);
-        this.customAttributes.set('fuel_total_volume', this.fuel_total_volume);
       }
       else if (k === 'fuel_total_mass' || k === 'totalmass' || k === 'fuelmass' || k === 'total_mass') {
         this.fuel_total_mass = typeof val === 'number' ? val : parseFloat(val);
-        this.customAttributes.set('fuel_total_mass', this.fuel_total_mass);
       }
       else if (k === 'fuel_density' || k === 'density') {
         this.fuel_density = typeof val === 'number' ? val : parseFloat(val);
-        this.customAttributes.set('fuel_density', this.fuel_density);
       }
       else if (k === 'fuel_temperature' || k === 'fuel_temp' || k === 'temperature') {
         this.fuel_temperature = typeof val === 'number' ? val : parseFloat(val);
-        this.customAttributes.set('fuel_temperature', this.fuel_temperature);
       }
       else {
         // Atribut kustom dinamis baru!

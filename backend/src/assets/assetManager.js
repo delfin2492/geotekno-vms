@@ -439,14 +439,36 @@ class AssetManager {
           registeredKeys.add('environment.baro_pressure');
           registeredKeys.add('environment.baro_pressure_hpa');
         }
-      } else if (ns === 'engine' || ns === 'propulsion') {
+      } else if (ns === 'engine' || ns === 'propulsion' || ns === 'machinery') {
         if (['rpm', 'engine_rpm'].includes(k)) {
           registeredKeys.add('engine.rpm');
           registeredKeys.add('engine.engine_rpm');
+          registeredKeys.add('machinery.rpm');
         }
         if (['boost', 'boost_kpa'].includes(k)) {
           registeredKeys.add('engine.boost');
           registeredKeys.add('engine.boost_kpa');
+          registeredKeys.add('machinery.boost_kpa');
+        }
+        if (['fuel_flow_rate', 'flowrate', 'flow_rate'].includes(k)) {
+          registeredKeys.add('machinery.fuel_flow_rate');
+          registeredKeys.add('custom.fuel_flow_rate');
+        }
+        if (['fuel_total_volume', 'totalvolume', 'total_volume'].includes(k)) {
+          registeredKeys.add('machinery.fuel_total_volume');
+          registeredKeys.add('custom.fuel_total_volume');
+        }
+        if (['fuel_total_mass', 'totalmass', 'total_mass'].includes(k)) {
+          registeredKeys.add('machinery.fuel_total_mass');
+          registeredKeys.add('custom.fuel_total_mass');
+        }
+        if (['fuel_density', 'density'].includes(k)) {
+          registeredKeys.add('machinery.fuel_density');
+          registeredKeys.add('custom.fuel_density');
+        }
+        if (['fuel_temperature', 'fuel_temp', 'temperature'].includes(k)) {
+          registeredKeys.add('machinery.fuel_temperature');
+          registeredKeys.add('custom.fuel_temperature');
         }
       } else if (ns === 'electrical') {
         if (['battery_volts', 'voltage'].includes(k)) {
@@ -583,10 +605,20 @@ class AssetManager {
       addSignalIfLive('electrical', 'battery_temp', 'Battery Temperature', '°C', true, 127508, 'Live Battery Monitor');
     }
 
-    // 5. Custom Attributes dari Script Decoder (Hanya yang benar-benar ada nilainya di live payload)
+    // 5. Custom Attributes dari Script Decoder (Hanya yang benar-benar ada nilainya di live payload dan belum terdaftar di namespace apapun)
     if (state.customAttributes && state.customAttributes.size > 0) {
       for (const [cKey, cVal] of state.customAttributes.entries()) {
-        if (cVal !== null && cVal !== undefined && !registeredKeys.has(`custom.${cKey.toLowerCase()}`)) {
+        const lowerK = cKey.toLowerCase();
+        if (
+          cVal !== null &&
+          cVal !== undefined &&
+          !registeredKeys.has(`custom.${lowerK}`) &&
+          !registeredKeys.has(`machinery.${lowerK}`) &&
+          !registeredKeys.has(`engine.${lowerK}`) &&
+          !registeredKeys.has(`navigation.${lowerK}`) &&
+          !registeredKeys.has(`environment.${lowerK}`) &&
+          !registeredKeys.has(`motion.${lowerK}`)
+        ) {
           liveSignals.push({
             namespace: 'custom',
             keyName: cKey,
