@@ -296,10 +296,11 @@ class AssetManager {
       let attrUpdatedAt = null;
       if (lastSignalTime) {
         attrUpdatedAt = new Date(lastSignalTime).toISOString();
-      } else if (isFromDb && latestDb) {
-        attrUpdatedAt = latestDb.timestamp_utc || null;
-      } else if (snap && snap.timestamp_utc) {
-        attrUpdatedAt = snap.timestamp_utc;
+      } else if (latestDb) {
+        if (ns === 'navigation') attrUpdatedAt = latestDb.gps_timestamp_utc || latestDb.timestamp_utc || null;
+        else if (ns === 'motion') attrUpdatedAt = latestDb.motion_timestamp_utc || latestDb.timestamp_utc || null;
+        else if (ns === 'environment') attrUpdatedAt = latestDb.env_timestamp_utc || latestDb.timestamp_utc || null;
+        else attrUpdatedAt = latestDb.timestamp_utc || null;
       }
 
       return {

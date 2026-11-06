@@ -71,6 +71,15 @@ class VesselState {
     this.lastDataReceivedAt = null;
     this._lastSavedDataAt = null;
 
+    // Timestamp penerimaan data telemetri per domain
+    this.lastGpsUpdateAt = null;
+    this.lastMotionUpdateAt = null;
+    this.lastEnvUpdateAt = null;
+    this.lastMachineryUpdateAt = null;
+    this._lastSavedGpsAt = null;
+    this._lastSavedMotionAt = null;
+    this._lastSavedEnvAt = null;
+
     // Statistik Bus
     this.totalFrames = 0;
     this.frameRate = 0.0;
@@ -126,9 +135,14 @@ class VesselState {
     if (!key) return;
     const now = Date.now();
     const k = String(key).toLowerCase();
+    const ns = namespace ? String(namespace).toLowerCase() : '';
     this.signalTimestamps.set(k, now);
-    if (namespace) {
-      this.signalTimestamps.set(`${String(namespace).toLowerCase()}.${k}`, now);
+    if (ns) {
+      this.signalTimestamps.set(`${ns}.${k}`, now);
+      if (ns === 'navigation') this.lastGpsUpdateAt = now;
+      else if (ns === 'motion') this.lastMotionUpdateAt = now;
+      else if (ns === 'environment') this.lastEnvUpdateAt = now;
+      else if (ns === 'machinery' || ns === 'engine') this.lastMachineryUpdateAt = now;
     }
   }
 

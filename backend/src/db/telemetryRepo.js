@@ -4,7 +4,7 @@ const { pool } = require('./pool');
  * Menyimpan snapshot telemetri kapal ke tabel-tabel ternormalisasi di PostgreSQL
  * @param {Object} snap - Snapshot dari vesselState.getSnapshot()
  */
-async function saveTelemetrySnapshot(snap, assetId = 'vessel_primary') {
+async function saveTelemetrySnapshot(snap, assetId = 'vessel_primary', assetState = null) {
   const nav = snap.navigation;
   const mot = snap.motion;
   const env = snap.environment;
@@ -23,8 +23,11 @@ async function saveTelemetrySnapshot(snap, assetId = 'vessel_primary') {
   try {
     await client.query('BEGIN');
 
-    // 1. Simpan GPS
-    if (nav.latitude !== null && nav.longitude !== null) {
+    // 1. Simpan GPS hanya jika ada update data GPS baru
+    const gpsUpdated = assetState ? (assetState.lastGpsUpdateAt && assetState.lastGpsUpdateAt !== assetState._lastSavedGpsAt) : (nav.latitude !== null && nav.longitude !== null);
+    if (gpsUpdated && nav.latitude !== null && nav.longitude !== null) {
+      if (assetState) assetState._lastSavedGpsAt = assetState.lastGpsUpdateAt;
+      const gpsTime = (assetState?.lastGpsUpdateAt) ? new Date(assetState.lastGpsUpdateAt).toISOString() : snap.timestamp_utc;
       const geomSql = 'ST_SetSRID(ST_MakePoint($5, $4), 4326)';
       await client.query(
         `INSERT INTO tbl_telemetry_gps (
@@ -35,7 +38,7 @@ async function saveTelemetrySnapshot(snap, assetId = 'vessel_primary') {
         )`,
         [
           assetId,
-          snap.timestamp_utc,
+          gpsTime,
           snap.timestamp_local,
           nav.latitude,
           nav.longitude,
@@ -51,15 +54,18 @@ async function saveTelemetrySnapshot(snap, assetId = 'vessel_primary') {
       );
     }
 
-    // 2. Simpan Motion
-    if (mot.heading_deg !== null || mot.pitch_deg !== null || mot.roll_deg !== null) {
+    // 2. Simpan Motion hanya jika ada update data Motion baru
+    const motionUpdated = assetState ? (assetState.lastMotionUpdateAt && assetState.lastMotionUpdateAt !== assetState._lastSavedMotionAt) : true;
+    if (motionUpdated && (mot.heading_deg !== null || mot.pitch_deg !== null || mot.roll_deg !== null)) {
+      if (assetState) assetState._lastSavedMotionAt = assetState.lastMotionUpdateAt;
+      const motTime = (assetState?.lastMotionUpdateAt) ? new Date(assetState.lastMotionUpdateAt).toISOString() : snap.timestamp_utc;
       await client.query(
         `INSERT INTO tbl_telemetry_motion (
           asset_id, timestamp_utc, timestamp_local, heading_deg, heading_ref, rot_deg_s, pitch_deg, roll_deg
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
           assetId,
-          snap.timestamp_utc,
+          motTime,
           snap.timestamp_local,
           mot.heading_deg,
           mot.heading_ref,
@@ -70,8 +76,11 @@ async function saveTelemetrySnapshot(snap, assetId = 'vessel_primary') {
       );
     }
 
-    // 3. Simpan Environment
-    if (env.wind_speed_kn !== null || env.depth_m !== null || env.water_temp_c !== null) {
+    // 3. Simpan Environment hanya jika ada update data Environment baru
+    const envUpdated = assetState ? (assetState.lastEnvUpdateAt && assetState.lastEnvUpdateAt !== assetState._lastSavedEnvAt) : true;
+    if (envUpdated && (env.wind_speed_kn !== null || env.depth_m !== null || env.water_temp_c !== null)) {
+      if (assetState) assetState._lastSavedEnvAt = assetState.lastEnvUpdateAt;
+      const envTime = (assetState?.lastEnvUpdateAt) ? new Date(assetState.lastEnvUpdateAt).toISOString() : snap.timestamp_utc;
       await client.query(
         `INSERT INTO tbl_telemetry_environment (
           asset_id, timestamp_utc, timestamp_local, wind_speed_kn, wind_angle_deg, wind_ref,
@@ -79,7 +88,7 @@ async function saveTelemetrySnapshot(snap, assetId = 'vessel_primary') {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
           assetId,
-          snap.timestamp_utc,
+          envTime,
           snap.timestamp_local,
           env.wind_speed_kn,
           env.wind_angle_deg,
@@ -195,6 +204,9 @@ async function getLatestTelemetry(assetId = null) {
 
     return {
       timestamp_utc: latestTs,
+      gps_timestamp_utc: gps.timestamp_utc ? new Date(gps.timestamp_utc).toISOString() : null,
+      motion_timestamp_utc: mot.timestamp_utc ? new Date(mot.timestamp_utc).toISOString() : null,
+      env_timestamp_utc: env.timestamp_utc ? new Date(env.timestamp_utc).toISOString() : null,
       timestamp_local: gps.timestamp_local || new Date(latestTs).toLocaleString('sv-SE').replace('T', ' '),
       navigation: {
         latitude: gps.latitude !== undefined && gps.latitude !== null ? parseFloat(gps.latitude) : null,

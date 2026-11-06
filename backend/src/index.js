@@ -60,7 +60,7 @@ async function main() {
       if (assetItem.state.lastDataReceivedAt && assetItem.state.lastDataReceivedAt !== assetItem.state._lastSavedDataAt) {
         assetItem.state._lastSavedDataAt = assetItem.state.lastDataReceivedAt;
         const snap = assetItem.state.getSnapshot();
-        await saveTelemetrySnapshot(snap, assetId);
+        await saveTelemetrySnapshot(snap, assetId, assetItem.state);
       }
     }
   }, Math.round(config.logIntervalSec * 1000));
