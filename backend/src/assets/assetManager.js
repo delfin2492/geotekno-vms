@@ -263,7 +263,27 @@ class AssetManager {
         }
       }
 
-      const isLiveNow = !isFromDb && liveVal !== null && (assetItem?.state?.totalFrames > 0);
+      const FRESHNESS_MS = 15000; // 15 detik batas waktu streaming aktif per-sinyal
+      const sigKey = (row.key_name || '').toLowerCase();
+      const ns = (row.namespace || '').toLowerCase();
+      const nsKey = `${ns}.${sigKey}`;
+
+      const signalTimes = snap?.signal_timestamps || {};
+      let lastSignalTime = signalTimes[nsKey] || signalTimes[sigKey] || null;
+      if (!lastSignalTime) {
+        if (sigKey === 'position' || sigKey === 'coordinates') {
+          lastSignalTime = signalTimes['latitude'] || signalTimes['navigation.position'] || null;
+        } else if (sigKey === 'sog' || sigKey === 'sog_knots') {
+          lastSignalTime = signalTimes['sog'] || signalTimes['navigation.sog'] || null;
+        } else if (sigKey === 'cog' || sigKey === 'cog_deg') {
+          lastSignalTime = signalTimes['cog'] || signalTimes['navigation.cog'] || null;
+        } else if (sigKey === 'heading') {
+          lastSignalTime = signalTimes['heading'] || signalTimes['motion.heading'] || null;
+        }
+      }
+
+      const isFresh = lastSignalTime ? (Date.now() - lastSignalTime < FRESHNESS_MS) : false;
+      const isLiveNow = !isFromDb && liveVal !== null && isFresh;
       const sourceVal = row.pointing_source || row.pgn_source || '';
 
       let status = 'offline';
@@ -274,8 +294,8 @@ class AssetManager {
       }
 
       let attrUpdatedAt = null;
-      if (isLiveNow) {
-        attrUpdatedAt = snap?.timestamp_utc || new Date().toISOString();
+      if (lastSignalTime) {
+        attrUpdatedAt = new Date(lastSignalTime).toISOString();
       } else if (isFromDb && latestDb) {
         attrUpdatedAt = latestDb.timestamp_utc || null;
       } else if (snap && snap.timestamp_utc) {

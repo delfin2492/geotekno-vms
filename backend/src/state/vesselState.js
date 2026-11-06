@@ -58,6 +58,9 @@ class VesselState {
     // Dynamic Custom Telemetry Attributes dari Script Decoder
     this.customAttributes = new Map();
 
+    // Timestamp per-atribut sinyal untuk validasi status keaktifan (live freshness per-signal)
+    this.signalTimestamps = new Map();
+
     // Map: sourceAddress -> { source, pgns: Set, frameCount, lastSeen }
     this.devices = new Map();
 
@@ -119,6 +122,16 @@ class VesselState {
     }
   }
 
+  touchSignal(key, namespace) {
+    if (!key) return;
+    const now = Date.now();
+    const k = String(key).toLowerCase();
+    this.signalTimestamps.set(k, now);
+    if (namespace) {
+      this.signalTimestamps.set(`${String(namespace).toLowerCase()}.${k}`, now);
+    }
+  }
+
   applyNmea0183(data) {
     if (!data) return;
 
@@ -148,28 +161,28 @@ class VesselState {
     // Telemetri kapal sendiri (own ship) - catat waktu data masuk
     this.lastDataReceivedAt = Date.now();
 
-    if (data.latitude !== undefined && data.latitude !== null) this.latitude = data.latitude;
-    if (data.longitude !== undefined && data.longitude !== null) this.longitude = data.longitude;
-    if (data.altitude_m !== undefined && data.altitude_m !== null) this.altitude_m = data.altitude_m;
-    if (data.sog_knots !== undefined && data.sog_knots !== null) this.sog_knots = data.sog_knots;
+    if (data.latitude !== undefined && data.latitude !== null) { this.latitude = data.latitude; this.touchSignal('position', 'navigation'); this.touchSignal('latitude', 'navigation'); }
+    if (data.longitude !== undefined && data.longitude !== null) { this.longitude = data.longitude; this.touchSignal('position', 'navigation'); this.touchSignal('longitude', 'navigation'); }
+    if (data.altitude_m !== undefined && data.altitude_m !== null) { this.altitude_m = data.altitude_m; this.touchSignal('altitude', 'navigation'); }
+    if (data.sog_knots !== undefined && data.sog_knots !== null) { this.sog_knots = data.sog_knots; this.touchSignal('sog', 'navigation'); }
     if (data.sog_kmh !== undefined && data.sog_kmh !== null) this.sog_kmh = data.sog_kmh;
-    if (data.cog_deg !== undefined && data.cog_deg !== null) this.cog_deg = data.cog_deg;
-    if (data.satellites !== undefined && data.satellites !== null) this.satellites = data.satellites;
-    if (data.hdop !== undefined && data.hdop !== null) this.hdop = data.hdop;
+    if (data.cog_deg !== undefined && data.cog_deg !== null) { this.cog_deg = data.cog_deg; this.touchSignal('cog', 'navigation'); }
+    if (data.satellites !== undefined && data.satellites !== null) { this.satellites = data.satellites; this.touchSignal('satellites', 'navigation'); }
+    if (data.hdop !== undefined && data.hdop !== null) { this.hdop = data.hdop; this.touchSignal('hdop', 'navigation'); }
     if (data.gnss_fix) this.gnss_method = data.gnss_fix;
 
-    if (data.heading_deg !== undefined && data.heading_deg !== null) this.heading_deg = data.heading_deg;
+    if (data.heading_deg !== undefined && data.heading_deg !== null) { this.heading_deg = data.heading_deg; this.touchSignal('heading', 'motion'); }
     if (data.heading_ref) this.heading_ref = data.heading_ref;
 
-    if (data.depth_m !== undefined && data.depth_m !== null) this.depth_m = data.depth_m;
+    if (data.depth_m !== undefined && data.depth_m !== null) { this.depth_m = data.depth_m; this.touchSignal('depth', 'environment'); }
     if (data.depth_ft !== undefined && data.depth_ft !== null) this.depth_ft = data.depth_ft;
 
-    if (data.wind_speed_kn !== undefined && data.wind_speed_kn !== null) this.wind_speed_kn = data.wind_speed_kn;
+    if (data.wind_speed_kn !== undefined && data.wind_speed_kn !== null) { this.wind_speed_kn = data.wind_speed_kn; this.touchSignal('wind_speed', 'environment'); }
     if (data.wind_speed_ms !== undefined && data.wind_speed_ms !== null) this.wind_speed_ms = data.wind_speed_ms;
-    if (data.wind_angle_deg !== undefined && data.wind_angle_deg !== null) this.wind_angle_deg = data.wind_angle_deg;
+    if (data.wind_angle_deg !== undefined && data.wind_angle_deg !== null) { this.wind_angle_deg = data.wind_angle_deg; this.touchSignal('wind_angle', 'environment'); }
     if (data.wind_ref) this.wind_ref = data.wind_ref;
 
-    if (data.water_temp_c !== undefined && data.water_temp_c !== null) this.water_temp_c = data.water_temp_c;
+    if (data.water_temp_c !== undefined && data.water_temp_c !== null) { this.water_temp_c = data.water_temp_c; this.touchSignal('water_temp', 'environment'); }
   }
 
   updateFrameStats() {
@@ -240,53 +253,53 @@ class VesselState {
     this.lastDataReceivedAt = Date.now();
 
     if (pgn === 129025) {
-      if (data.latitude !== undefined) this.latitude = data.latitude;
-      if (data.longitude !== undefined) this.longitude = data.longitude;
+      if (data.latitude !== undefined) { this.latitude = data.latitude; this.touchSignal('position', 'navigation'); this.touchSignal('latitude', 'navigation'); }
+      if (data.longitude !== undefined) { this.longitude = data.longitude; this.touchSignal('position', 'navigation'); this.touchSignal('longitude', 'navigation'); }
     } else if (pgn === 129026) {
-      if (data.sog_knots !== undefined) this.sog_knots = data.sog_knots;
+      if (data.sog_knots !== undefined) { this.sog_knots = data.sog_knots; this.touchSignal('sog', 'navigation'); }
       if (data.sog_kmh !== undefined) this.sog_kmh = data.sog_kmh;
-      if (data.cog_deg !== undefined) this.cog_deg = data.cog_deg;
+      if (data.cog_deg !== undefined) { this.cog_deg = data.cog_deg; this.touchSignal('cog', 'navigation'); }
       if (data.cog_ref !== undefined) this.cog_ref = data.cog_ref;
     } else if (pgn === 129029) {
-      if (data.latitude !== undefined && data.latitude !== null) this.latitude = data.latitude;
-      if (data.longitude !== undefined && data.longitude !== null) this.longitude = data.longitude;
-      if (data.altitude_m !== undefined) this.altitude_m = data.altitude_m;
+      if (data.latitude !== undefined && data.latitude !== null) { this.latitude = data.latitude; this.touchSignal('position', 'navigation'); this.touchSignal('latitude', 'navigation'); }
+      if (data.longitude !== undefined && data.longitude !== null) { this.longitude = data.longitude; this.touchSignal('position', 'navigation'); this.touchSignal('longitude', 'navigation'); }
+      if (data.altitude_m !== undefined) { this.altitude_m = data.altitude_m; this.touchSignal('altitude', 'navigation'); }
       if (data.gnss_method !== undefined) this.gnss_method = data.gnss_method;
-      if (data.satellites !== undefined) this.satellites = data.satellites;
-      if (data.hdop !== undefined) this.hdop = data.hdop;
+      if (data.satellites !== undefined) { this.satellites = data.satellites; this.touchSignal('satellites', 'navigation'); }
+      if (data.hdop !== undefined) { this.hdop = data.hdop; this.touchSignal('hdop', 'navigation'); }
       if (data.pdop !== undefined) this.pdop = data.pdop;
     } else if (pgn === 127250) {
-      if (data.heading_deg !== undefined) this.heading_deg = data.heading_deg;
+      if (data.heading_deg !== undefined) { this.heading_deg = data.heading_deg; this.touchSignal('heading', 'motion'); }
       if (data.heading_ref !== undefined) this.heading_ref = data.heading_ref;
     } else if (pgn === 127251) {
-      if (data.rot_deg_s !== undefined) this.rot_deg_s = data.rot_deg_s;
+      if (data.rot_deg_s !== undefined) { this.rot_deg_s = data.rot_deg_s; this.touchSignal('rot', 'motion'); }
     } else if (pgn === 127257) {
-      if (data.pitch_deg !== undefined) this.pitch_deg = data.pitch_deg;
-      if (data.roll_deg !== undefined) this.roll_deg = data.roll_deg;
+      if (data.pitch_deg !== undefined) { this.pitch_deg = data.pitch_deg; this.touchSignal('pitch', 'motion'); }
+      if (data.roll_deg !== undefined) { this.roll_deg = data.roll_deg; this.touchSignal('roll', 'motion'); }
     } else if (pgn === 128267) {
-      if (data.depth_m !== undefined) this.depth_m = data.depth_m;
+      if (data.depth_m !== undefined) { this.depth_m = data.depth_m; this.touchSignal('depth', 'environment'); }
       if (data.depth_ft !== undefined) this.depth_ft = data.depth_ft;
     } else if (pgn === 128259) {
-      if (data.stw_knots !== undefined) this.stw_knots = data.stw_knots;
+      if (data.stw_knots !== undefined) { this.stw_knots = data.stw_knots; this.touchSignal('stw', 'navigation'); }
     } else if (pgn === 128275) {
-      if (data.log_nm !== undefined) this.log_nm = data.log_nm;
-      if (data.trip_log_nm !== undefined) this.trip_log_nm = data.trip_log_nm;
+      if (data.log_nm !== undefined) { this.log_nm = data.log_nm; this.touchSignal('log_distance', 'navigation'); }
+      if (data.trip_log_nm !== undefined) { this.trip_log_nm = data.trip_log_nm; this.touchSignal('trip_distance', 'navigation'); }
     } else if (pgn === 130306) {
-      if (data.wind_speed_kn !== undefined) this.wind_speed_kn = data.wind_speed_kn;
+      if (data.wind_speed_kn !== undefined) { this.wind_speed_kn = data.wind_speed_kn; this.touchSignal('wind_speed', 'environment'); }
       if (data.wind_speed_ms !== undefined) this.wind_speed_ms = data.wind_speed_ms;
-      if (data.wind_angle_deg !== undefined) this.wind_angle_deg = data.wind_angle_deg;
+      if (data.wind_angle_deg !== undefined) { this.wind_angle_deg = data.wind_angle_deg; this.touchSignal('wind_angle', 'environment'); }
       if (data.wind_ref !== undefined) this.wind_ref = data.wind_ref;
     } else if (pgn === 130310 || pgn === 130311 || pgn === 130312 || pgn === 130316) {
-      if (data.water_temp_c !== undefined) this.water_temp_c = data.water_temp_c;
-      if (data.air_temp_c !== undefined) this.air_temp_c = data.air_temp_c;
-      if (data.baro_pressure_hpa !== undefined) this.baro_pressure_hpa = data.baro_pressure_hpa;
+      if (data.water_temp_c !== undefined) { this.water_temp_c = data.water_temp_c; this.touchSignal('water_temp', 'environment'); }
+      if (data.air_temp_c !== undefined) { this.air_temp_c = data.air_temp_c; this.touchSignal('air_temp', 'environment'); }
+      if (data.baro_pressure_hpa !== undefined) { this.baro_pressure_hpa = data.baro_pressure_hpa; this.touchSignal('baro_pressure', 'environment'); }
     } else if (pgn === 127488) {
-      if (data.rpm !== undefined) this.engine_rpm = data.rpm;
-      if (data.boost_kpa !== undefined) this.boost_kpa = data.boost_kpa;
+      if (data.rpm !== undefined) { this.engine_rpm = data.rpm; this.touchSignal('rpm', 'machinery'); this.touchSignal('rpm', 'engine'); }
+      if (data.boost_kpa !== undefined) { this.boost_kpa = data.boost_kpa; this.touchSignal('boost_kpa', 'machinery'); this.touchSignal('boost_kpa', 'engine'); }
     } else if (pgn === 127508) {
-      if (data.battery_volts !== undefined) this.battery_volts = data.battery_volts;
-      if (data.battery_amps !== undefined) this.battery_amps = data.battery_amps;
-      if (data.battery_temp_c !== undefined) this.battery_temp_c = data.battery_temp_c;
+      if (data.battery_volts !== undefined) { this.battery_volts = data.battery_volts; this.touchSignal('battery_volts', 'electrical'); }
+      if (data.battery_amps !== undefined) { this.battery_amps = data.battery_amps; this.touchSignal('battery_current', 'electrical'); }
+      if (data.battery_temp_c !== undefined) { this.battery_temp_c = data.battery_temp_c; this.touchSignal('battery_temp', 'electrical'); }
     }
   }
 
@@ -304,40 +317,46 @@ class VesselState {
       const val = !isNaN(numVal) ? numVal : rawVal;
 
       const k = key.toLowerCase();
-      if (k === 'sog' || k === 'sog_knots') this.sog_knots = typeof val === 'number' ? val : parseFloat(val);
-      else if (k === 'cog' || k === 'cog_deg') this.cog_deg = typeof val === 'number' ? val : parseFloat(val);
-      else if (k === 'heading' || k === 'heading_deg') this.heading_deg = typeof val === 'number' ? val : parseFloat(val);
-      else if (k === 'lat' || k === 'latitude') this.latitude = typeof val === 'number' ? val : parseFloat(val);
-      else if (k === 'lon' || k === 'lng' || k === 'longitude') this.longitude = typeof val === 'number' ? val : parseFloat(val);
-      else if (k === 'depth' || k === 'depth_m') this.depth_m = typeof val === 'number' ? val : parseFloat(val);
-      else if (k === 'rpm' || k === 'engine_rpm') this.engine_rpm = typeof val === 'number' ? val : parseFloat(val);
-      else if (k === 'boost' || k === 'boost_kpa') this.boost_kpa = typeof val === 'number' ? val : parseFloat(val);
-      else if (k === 'battery' || k === 'battery_volts') this.battery_volts = typeof val === 'number' ? val : parseFloat(val);
-      else if (k === 'wind_speed' || k === 'windspeed' || k === 'wind_speed_kn') this.wind_speed_kn = typeof val === 'number' ? val : parseFloat(val);
-      else if (k === 'wind_angle' || k === 'windangle' || k === 'wind_angle_deg') this.wind_angle_deg = typeof val === 'number' ? val : parseFloat(val);
-      else if (k === 'water_temp' || k === 'water_temp_c') this.water_temp_c = typeof val === 'number' ? val : parseFloat(val);
-      else if (k === 'air_temp' || k === 'air_temp_c') this.air_temp_c = typeof val === 'number' ? val : parseFloat(val);
-      else if (k === 'pitch' || k === 'pitch_deg') this.pitch_deg = typeof val === 'number' ? val : parseFloat(val);
-      else if (k === 'roll' || k === 'roll_deg') this.roll_deg = typeof val === 'number' ? val : parseFloat(val);
-      else if (k === 'rot' || k === 'rot_deg_s') this.rot_deg_s = typeof val === 'number' ? val : parseFloat(val);
+      if (k === 'sog' || k === 'sog_knots') { this.sog_knots = typeof val === 'number' ? val : parseFloat(val); this.touchSignal('sog', 'navigation'); }
+      else if (k === 'cog' || k === 'cog_deg') { this.cog_deg = typeof val === 'number' ? val : parseFloat(val); this.touchSignal('cog', 'navigation'); }
+      else if (k === 'heading' || k === 'heading_deg') { this.heading_deg = typeof val === 'number' ? val : parseFloat(val); this.touchSignal('heading', 'motion'); }
+      else if (k === 'lat' || k === 'latitude') { this.latitude = typeof val === 'number' ? val : parseFloat(val); this.touchSignal('position', 'navigation'); this.touchSignal('latitude', 'navigation'); }
+      else if (k === 'lon' || k === 'lng' || k === 'longitude') { this.longitude = typeof val === 'number' ? val : parseFloat(val); this.touchSignal('position', 'navigation'); this.touchSignal('longitude', 'navigation'); }
+      else if (k === 'depth' || k === 'depth_m') { this.depth_m = typeof val === 'number' ? val : parseFloat(val); this.touchSignal('depth', 'environment'); }
+      else if (k === 'rpm' || k === 'engine_rpm') { this.engine_rpm = typeof val === 'number' ? val : parseFloat(val); this.touchSignal('rpm', 'machinery'); this.touchSignal('rpm', 'engine'); }
+      else if (k === 'boost' || k === 'boost_kpa') { this.boost_kpa = typeof val === 'number' ? val : parseFloat(val); this.touchSignal('boost_kpa', 'machinery'); this.touchSignal('boost_kpa', 'engine'); }
+      else if (k === 'battery' || k === 'battery_volts') { this.battery_volts = typeof val === 'number' ? val : parseFloat(val); this.touchSignal('battery_volts', 'electrical'); }
+      else if (k === 'wind_speed' || k === 'windspeed' || k === 'wind_speed_kn') { this.wind_speed_kn = typeof val === 'number' ? val : parseFloat(val); this.touchSignal('wind_speed', 'environment'); }
+      else if (k === 'wind_angle' || k === 'windangle' || k === 'wind_angle_deg') { this.wind_angle_deg = typeof val === 'number' ? val : parseFloat(val); this.touchSignal('wind_angle', 'environment'); }
+      else if (k === 'water_temp' || k === 'water_temp_c') { this.water_temp_c = typeof val === 'number' ? val : parseFloat(val); this.touchSignal('water_temp', 'environment'); }
+      else if (k === 'air_temp' || k === 'air_temp_c') { this.air_temp_c = typeof val === 'number' ? val : parseFloat(val); this.touchSignal('air_temp', 'environment'); }
+      else if (k === 'pitch' || k === 'pitch_deg') { this.pitch_deg = typeof val === 'number' ? val : parseFloat(val); this.touchSignal('pitch', 'motion'); }
+      else if (k === 'roll' || k === 'roll_deg') { this.roll_deg = typeof val === 'number' ? val : parseFloat(val); this.touchSignal('roll', 'motion'); }
+      else if (k === 'rot' || k === 'rot_deg_s') { this.rot_deg_s = typeof val === 'number' ? val : parseFloat(val); this.touchSignal('rot', 'motion'); }
       else if (k === 'fuel_flow_rate' || k === 'flowrate' || k === 'fuelflow' || k === 'flow_rate') {
         this.fuel_flow_rate = typeof val === 'number' ? val : parseFloat(val);
+        this.touchSignal('fuel_flow_rate', 'machinery');
       }
       else if (k === 'fuel_total_volume' || k === 'totalvolume' || k === 'fuelvolume' || k === 'total_volume') {
         this.fuel_total_volume = typeof val === 'number' ? val : parseFloat(val);
+        this.touchSignal('fuel_total_volume', 'machinery');
       }
       else if (k === 'fuel_total_mass' || k === 'totalmass' || k === 'fuelmass' || k === 'total_mass') {
         this.fuel_total_mass = typeof val === 'number' ? val : parseFloat(val);
+        this.touchSignal('fuel_total_mass', 'machinery');
       }
       else if (k === 'fuel_density' || k === 'density') {
         this.fuel_density = typeof val === 'number' ? val : parseFloat(val);
+        this.touchSignal('fuel_density', 'machinery');
       }
       else if (k === 'fuel_temperature' || k === 'fuel_temp' || k === 'temperature') {
         this.fuel_temperature = typeof val === 'number' ? val : parseFloat(val);
+        this.touchSignal('fuel_temperature', 'machinery');
       }
       else {
         // Atribut kustom dinamis baru!
         this.customAttributes.set(key, val);
+        this.touchSignal(key, 'custom');
       }
     }
   }
@@ -417,6 +436,7 @@ class VesselState {
         fuel_temperature: this.fuel_temperature,
       },
       custom: Object.fromEntries(this.customAttributes),
+      signal_timestamps: Object.fromEntries(this.signalTimestamps),
       ais: {
         total_targets: activeAis.length,
         targets: activeAis.slice(0, 50), // Kirim 50 target terdekat/teraktif
